@@ -1,18 +1,25 @@
 // Dr. Robert Fortino — patient-facing weight-loss PWA prototype. Plain JS, no build step, no outside scripts.
+// Five tabs: Today · Progress · Plan · Care · Learn (plus the readiness quiz and the ⋯ "More" page).
 //
 // PREVIEW: nothing leaves this device. Before real patients use it, every "TODO(HIPAA)", "TODO(auth)" and
-// "TODO(payments)" below (and in index.html) must be done.
+// "TODO(payments)" below (and in index.html) must be done, and every "TODO(confirm)" / "TODO(confirm with Doc)"
+// approved by the practice.
 //
 // TODO(auth): there is no login. Real patient accounts need a HIPAA-eligible identity provider (signed BAA),
 // MFA option, secure httpOnly session cookies (never tokens in localStorage), automatic sign-out on shared
-// devices, and server-side checks on every request. Weight history would then sync to that account instead of
-// living only in localStorage.
+// devices, and server-side checks on every request. Habits, check-ins and the dose schedule would then sync to
+// that account instead of living only in localStorage. Do not build auth inside this prototype.
+//
+// Guardrails (see index.html): no weight tracking or weight-loss numbers, no dose advice, no brand "same as" or
+// compounded claims, no before/after or needle imagery, guides report rather than prescribe.
 
 "use strict";
 
-// Placeholder practice details: change them here, in one place.
 const CONFIG = {
   price: "$XXX",                    // TODO(confirm): placeholder monthly membership price
+  // TODO(confirm with Doc): daily targets must be set by the patient's physician (later: per patient, from their
+  // record). Leave them null until then; the app shows "set with your care team" instead of a generic number.
+  targets: { protein: null, hydration: null, movement: null },
 };
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -31,14 +38,29 @@ function toast(msg, ms = 3500) {
   toastTimer = setTimeout(() => t.classList.remove("show"), ms);
 }
 
-// ---------- Router (#home, #quiz, #progress, #learn, #learn/<slug>, #membership, #book, #menu, #privacy) ----------
-const TAB_FOR = { home: "home", quiz: "home", progress: "progress", learn: "learn", article: "learn",
-                  book: "book", membership: "menu", menu: "menu", privacy: "menu" };
+// ---------- Dates and on-device storage ----------
+// TODO(HIPAA): all of this is unencrypted localStorage on this device only. See TODO(auth) above.
+const iso = (d) => { const x = new Date(d); x.setMinutes(x.getMinutes() - x.getTimezoneOffset()); return x.toISOString().slice(0, 10); };
+const todayISO = () => iso(new Date());
+const daysAgoISO = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return iso(d); };
+const fmtDate = (s, opts = { month: "short", day: "numeric", year: "numeric" }) =>
+  new Date(s + "T12:00:00").toLocaleDateString(undefined, opts);
+const load = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } };
+const save = (key, value) => localStorage.setItem(key, JSON.stringify(value));
+const KEYS = { habits: "fortino.habits", checkins: "fortino.checkins", waist: "fortino.waist", wins: "fortino.wins",
+               oldWeights: "fortino.weights" };   // oldWeights: left by the earlier version; only ever deleted
+
+// ---------- Router ----------
+// #today (default) #progress #plan #care #care/book #learn #learn/<slug> #quiz #more #privacy
+const ALIASES = { home: "today", membership: "plan", book: "care", menu: "more" };   // links from older versions
+const TAB_FOR = { today: "today", quiz: "today", progress: "progress", plan: "plan", care: "care",
+                  learn: "learn", article: "learn" };
 
 function route() {
-  const [name, arg] = (location.hash.slice(1) || "home").split("/");
+  let [name, arg] = (location.hash.slice(1) || "today").split("/");
+  if (ALIASES[name]) { if (name === "book") arg = "book"; name = ALIASES[name]; }
   let view = name === "learn" && arg ? "article" : name;
-  if (!$(`[data-view="${view}"]`)) view = "home";
+  if (!$(`[data-view="${view}"]`)) view = "today";
   if (view === "article" && !renderArticle(arg)) { location.replace("#learn"); return; }
 
   $$(".view").forEach((v) => v.classList.toggle("active", v.dataset.view === view));
@@ -46,12 +68,199 @@ function route() {
     if (a.dataset.tab === TAB_FOR[view]) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
   });
+  if (view === "today") renderToday();
   if (view === "progress") renderProgress();
-  if (view === "menu") renderInstallState();
-  window.scrollTo(0, 0);
+  if (view === "more") renderInstallState();
   $("#main").focus({ preventScroll: true });
+  if (view === "care" && arg === "book") $("#book").scrollIntoView();
+  else window.scrollTo(0, 0);
 }
 window.addEventListener("hashchange", route);
+
+// ---------- Habits (shared by Today and Progress) ----------
+const HABITS = [
+  { id: "protein", label: "Protein target", icon: "🥚" },
+  { id: "hydration", label: "Hydration target", icon: "💧" },
+  { id: "movement", label: "Movement or strength", icon: "👟" },
+];
+const habitsLog = () => load(KEYS.habits, {});
+const isDone = (log, day, id) => Boolean(log[day] && log[day][id]);
+function setHabit(day, id, done) {
+  const log = habitsLog();
+  log[day] = { ...(log[day] || {}), [id]: done };
+  if (!Object.values(log[day]).some(Boolean)) delete log[day];
+  save(KEYS.habits, log);
+}
+// Current streak: consecutive days ending today, or ending yesterday if today isn't ticked yet.
+function currentStreak(log, id) {
+  let n = 0, i = isDone(log, todayISO(), id) ? 0 : 1;
+  while (isDone(log, daysAgoISO(i), id)) { n++; i++; }
+  return n;
+}
+function bestStreak(log, id) {
+  const days = Object.keys(log).filter((d) => log[d][id]).sort();
+  let best = 0, run = 0, prev = null;
+  for (const d of days) {
+    const next = prev && iso(new Date(new Date(prev + "T12:00:00").getTime() + 864e5)) === d;
+    run = next ? run + 1 : 1; best = Math.max(best, run); prev = d;
+  }
+  return best;
+}
+
+// ---------- TODAY ----------
+function renderToday() {
+  $("#today-date").textContent = new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+  const log = habitsLog(), day = todayISO();
+  const ul = $("#today-habits");
+  ul.replaceChildren();
+  HABITS.forEach((h) => {
+    const done = isDone(log, day, h.id);
+    const li = document.createElement("li");
+    li.innerHTML = `<button type="button" class="habit-btn" aria-pressed="${done}">
+        <span class="habit-icon" aria-hidden="true"></span>
+        <span class="habit-text"><strong></strong><small></small></span>
+        <span class="habit-check" aria-hidden="true">${done ? "✓" : ""}</span></button>`;
+    $(".habit-icon", li).textContent = h.icon;
+    $("strong", li).textContent = h.label;
+    $("small", li).textContent = CONFIG.targets[h.id] ? `Target: ${CONFIG.targets[h.id]}` : "Target: set with your care team";
+    $("button", li).addEventListener("click", () => {
+      setHabit(day, h.id, !done);
+      if (!done) toast(`${h.label}: done for today.`);
+      renderToday();
+    });
+    ul.append(li);
+  });
+
+  const c = load(KEYS.checkins, {})[day];
+  $("#checkin-form").hidden = Boolean(c);
+  $("#checkin-done").hidden = !c;
+  if (c) {
+    $("#checkin-summary").textContent = `Energy: ${c.energy} · Hunger: ${c.hunger} · Stomach: ${c.stomach}`;
+    $("#checkin-stomach").hidden = c.stomach !== "Bothering me";
+  }
+  $("#newcomer").hidden = Object.keys(log).length > 0 || Object.keys(load(KEYS.checkins, {})).length > 0;
+
+  // Guide of the day: rotates through the library
+  const g = GUIDES[Math.floor(Date.now() / 864e5) % GUIDES.length];
+  const tip = $("#tip-card");
+  tip.href = `#learn/${g.slug}`;
+  tip.innerHTML = `<img alt="" width="800" height="450" loading="lazy"><span class="tip-text"><small>Today's read</small><strong></strong><span></span></span>`;
+  $("img", tip).src = g.img; $("strong", tip).textContent = g.title; $(".tip-text > span", tip).textContent = g.summary;
+}
+
+const checkinForm = $("#checkin-form");
+checkinForm.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const f = checkinForm.elements;
+  const answer = (n) => (f[n].value || "");
+  if (!answer("energy") || !answer("hunger") || !answer("stomach")) {
+    $(".form-error", checkinForm).textContent = "Please answer all three.";
+    return;
+  }
+  $(".form-error", checkinForm).textContent = "";
+  const all = load(KEYS.checkins, {});
+  all[todayISO()] = { energy: answer("energy"), hunger: answer("hunger"), stomach: answer("stomach") };
+  save(KEYS.checkins, all);
+  toast("Check-in saved on this device.");
+  renderToday();
+});
+$("#checkin-edit").addEventListener("click", () => {
+  const c = load(KEYS.checkins, {})[todayISO()];
+  if (c) ["energy", "hunger", "stomach"].forEach((n) => {
+    const r = $(`input[name="${n}"][value="${c[n]}"]`, checkinForm); if (r) r.checked = true;
+  });
+  $("#checkin-form").hidden = false; $("#checkin-done").hidden = true;
+});
+
+// ---------- PROGRESS (behaviors only; never weight) ----------
+function renderProgress() {
+  const log = habitsLog(), wrap = $("#streaks");
+  wrap.replaceChildren();
+  HABITS.forEach((h) => {
+    const card = document.createElement("div");
+    card.className = "card streak";
+    card.innerHTML = `<div class="streak-head"><span class="habit-icon" aria-hidden="true"></span><h2 class="h3"></h2>
+        <span class="streak-num"><b></b><small>day streak</small></span></div>
+      <div class="week-row" role="group"></div><p class="fine streak-best"></p>`;
+    $(".habit-icon", card).textContent = h.icon;
+    $("h2", card).textContent = h.label;
+    $(".streak-num b", card).textContent = currentStreak(log, h.id);
+    const best = bestStreak(log, h.id);
+    $(".streak-best", card).textContent = best ? `Best streak: ${best} day${best === 1 ? "" : "s"}` : "Tick a day to start a streak.";
+    const row = $(".week-row", card);
+    row.setAttribute("aria-label", `${h.label}, last 7 days`);
+    for (let i = 6; i >= 0; i--) {
+      const day = daysAgoISO(i), done = isDone(log, day, h.id);
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "day"; b.setAttribute("aria-pressed", done);
+      b.setAttribute("aria-label", `${h.label}, ${fmtDate(day, { weekday: "long", month: "short", day: "numeric" })}: ${done ? "done" : "not done"}`);
+      b.innerHTML = `<small></small><span>${done ? "✓" : ""}</span>`;
+      $("small", b).textContent = i === 0 ? "Today" : fmtDate(day, { weekday: "narrow" });
+      b.addEventListener("click", () => { setHabit(day, h.id, !done); renderProgress(); });
+      row.append(b);
+    }
+    wrap.append(card);
+  });
+  renderLog("#waist-log", load(KEYS.waist, []), (x) => `${x.inches} in`, KEYS.waist);
+  renderLog("#win-log", load(KEYS.wins, []), (x) => x.text, KEYS.wins);
+}
+
+// A plain list, newest first. No differences or totals are worked out (guardrail: no loss numbers).
+function renderLog(sel, list, text, key) {
+  const ul = $(sel);
+  ul.replaceChildren();
+  [...list].sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id).forEach((x) => {
+    const li = document.createElement("li");
+    li.innerHTML = `<span class="log-text"></span><span class="log-date"></span><button type="button">✕</button>`;
+    $(".log-text", li).textContent = text(x);
+    $(".log-date", li).textContent = fmtDate(x.date, { month: "short", day: "numeric" });
+    const b = $("button", li);
+    b.setAttribute("aria-label", `Delete ${text(x)}, ${fmtDate(x.date)}`);
+    b.addEventListener("click", () => {
+      if (!confirm("Delete this entry?")) return;
+      save(key, load(key, []).filter((y) => y.id !== x.id));
+      renderProgress();
+    });
+    ul.append(li);
+  });
+}
+
+const waistForm = $("#waist-form");
+waistForm.elements.date.value = todayISO();
+waistForm.elements.date.max = todayISO();
+waistForm.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const v = parseFloat(waistForm.elements.waist.value), date = waistForm.elements.date.value;
+  const err = $(".form-error", waistForm);
+  if (!(v >= 15 && v <= 90)) { err.textContent = "Please enter a measurement between 15 and 90 inches."; return; }
+  if (!date || date > todayISO()) { err.textContent = "Please choose today or an earlier date."; return; }
+  err.textContent = "";
+  save(KEYS.waist, [...load(KEYS.waist, []), { id: Date.now(), date, inches: v }]);
+  waistForm.elements.waist.value = "";
+  toast("Saved on this device.");
+  renderProgress();
+});
+
+const winForm = $("#win-form");
+$("#win-ideas").addEventListener("click", (e) => {
+  if (e.target.tagName === "BUTTON") { winForm.elements.win.value = e.target.textContent; winForm.elements.win.focus(); }
+});
+winForm.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const text = winForm.elements.win.value.trim();
+  if (!text) { $(".form-error", winForm).textContent = "Write a win, or tap one of the ideas."; return; }
+  $(".form-error", winForm).textContent = "";
+  save(KEYS.wins, [...load(KEYS.wins, []), { id: Date.now(), date: todayISO(), text: text.slice(0, 140) }]);
+  winForm.reset();
+  toast("Nice. Win saved on this device.");
+  renderProgress();
+});
+
+$("#clear-all").addEventListener("click", () => {
+  if (!confirm("Delete everything this app saved on this device (habits, check-ins, waist entries, wins)? This can't be undone.")) return;
+  Object.values(KEYS).forEach((k) => localStorage.removeItem(k));
+  toast("Deleted from this device.");
+});
 
 // ---------- 2) Readiness quiz ----------
 // Answers live only in this object (memory). Closing or reloading the tab forgets them.
@@ -134,136 +343,38 @@ $("#quiz-restart").addEventListener("click", () => {
   showStep(1);
 });
 
-// ---------- 3) Progress tracker (this device only) ----------
-// TODO(HIPAA): stored unencrypted in localStorage on this device only. Real use needs the synced, access-
-// controlled backend described in index.html and the TODO(auth) note above.
-const STORE = "fortino.weights";
-const loadWeights = () => {
-  try { return JSON.parse(localStorage.getItem(STORE)) || []; } catch { return []; }
+// ---------- LEARN: the guide library ----------
+// TO ADD A GUIDE: add one object to GUIDES (slug, category, title, summary, img, alt, minutes, body, sources).
+// Its card, its category filter chip and its page appear automatically. New category? Add it to CATEGORIES.
+//
+// Content rules ("report, don't prescribe"):
+//   - say what research or clinical guidance reports, and cite it honestly (what was studied, in whom, how strong);
+//     don't stretch a finding beyond what the source says
+//   - no weight-loss numbers, results or promises; no drug or brand names; no "same as" or compounded claims
+//   - no dose advice, ever; point back to the patient's own physician
+//   - any direct suggestion to the patient carries a TODO(confirm with Doc) comment until Dr. Fortino approves it,
+//     and every guide shows "Draft · awaiting review" until reviewed: true
+// TODO(photo): photos are placeholders (Unsplash, free license; see images/CREDITS.md). Swap in real ones.
+const CATEGORIES = ["Getting started", "Feeling your best", "Nutrition", "Movement", "Real life", "The basics", "Your visit"];
+
+const SRC = {
+  advisory: { label: "Mozaffarian D, et al. Nutritional priorities to support GLP-1 therapy for obesity: a joint advisory from the American College of Lifestyle Medicine, the American Society for Nutrition, the Obesity Medicine Association and The Obesity Society. Am J Clin Nutr. 2025;122(1):344–367.",
+              url: "https://doi.org/10.1016/j.ajcnut.2025.04.023" },
+  label: { label: "U.S. FDA. Prescribing information for GLP-1 receptor agonist medicines (Drugs@FDA).",
+           url: "https://www.accessdata.fda.gov/scripts/cder/daf/" },
+  pag: { label: "U.S. Department of Health and Human Services. Physical Activity Guidelines for Americans, 2nd edition. 2018.",
+         url: "https://health.gov/our-work/nutrition-physical-activity/physical-activity-guidelines" },
+  buffey: { label: "Buffey AJ, et al. The acute effects of interrupting prolonged sitting time in adults with standing and light-intensity walking on biomarkers of cardiometabolic health: a systematic review and meta-analysis. Sports Med. 2022;52:1765–1787.",
+            url: "https://pubmed.ncbi.nlm.nih.gov/35147898/" },
+  ginger: { label: "Viljoen E, et al. A systematic review and meta-analysis of the effect and safety of ginger in the treatment of pregnancy-associated nausea and vomiting. Nutr J. 2014;13:20.",
+            url: "https://pubmed.ncbi.nlm.nih.gov/24642205/" },
+  tsa: { label: "Transportation Security Administration. Liquid medications (What Can I Bring?).",
+         url: "https://www.tsa.gov/travel/security-screening/whatcanibring/items/liquid-medications" },
 };
-const saveWeights = (list) => localStorage.setItem(STORE, JSON.stringify(list));
-const todayISO = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
-const fmtDate = (iso, opts = { month: "short", day: "numeric", year: "numeric" }) =>
-  new Date(iso + "T12:00:00").toLocaleDateString(undefined, opts);
-const fmtW = (n) => (Math.round(n * 10) / 10).toLocaleString(undefined, { maximumFractionDigits: 1 });
 
-const weightForm = $("#weight-form");
-weightForm.elements.date.value = todayISO();
-weightForm.elements.date.max = todayISO();
-
-weightForm.addEventListener("submit", (e) => {
-  e.preventDefault();
-  const w = parseFloat(weightForm.elements.weight.value);
-  const date = weightForm.elements.date.value;
-  const err = $("#weight-error");
-  weightForm.elements.weight.classList.toggle("invalid", !(w >= 50 && w <= 1000));
-  if (!(w >= 50 && w <= 1000)) { err.textContent = "Please enter a weight between 50 and 1000 lbs."; return; }
-  if (!date || date > todayISO()) { err.textContent = "Please choose today or an earlier date."; return; }
-  err.textContent = "";
-  const list = loadWeights();
-  const existing = list.find((x) => x.date === date);
-  if (existing) existing.weight = w; else list.push({ date, weight: w });
-  list.sort((a, b) => a.date.localeCompare(b.date));
-  saveWeights(list);
-  weightForm.elements.weight.value = "";
-  weightForm.elements.date.value = todayISO();
-  toast(existing ? `Updated ${fmtDate(date)}.` : "Saved on this device.");
-  renderProgress();
-});
-
-$("#history").addEventListener("click", (e) => {
-  const btn = e.target.closest("button[data-date]");
-  if (!btn || !confirm(`Delete the entry for ${fmtDate(btn.dataset.date)}?`)) return;
-  saveWeights(loadWeights().filter((x) => x.date !== btn.dataset.date));
-  renderProgress();
-});
-$("#clear-weights").addEventListener("click", () => {
-  if (!confirm("Delete all weight entries on this device? This can't be undone.")) return;
-  localStorage.removeItem(STORE);
-  renderProgress();
-});
-
-function renderProgress() {
-  const list = loadWeights();
-  const first = list[0], last = list[list.length - 1];
-  const change = list.length > 1 ? last.weight - first.weight : null;
-  $("#stats").innerHTML = "";
-  [["Latest", last ? `${fmtW(last.weight)} lbs` : "—"],
-   ["Change", change === null ? "—" : `${change > 0 ? "+" : change < 0 ? "−" : ""}${fmtW(Math.abs(change))} lbs`],
-   ["Entries", String(list.length)]].forEach(([k, v]) => {
-    const d = document.createElement("div"); d.className = "stat";
-    const b = document.createElement("b"); b.textContent = v;
-    const s = document.createElement("small"); s.textContent = k;
-    d.append(b, s); $("#stats").append(d);
-  });
-
-  const ul = $("#history");
-  ul.replaceChildren();
-  [...list].reverse().forEach((x) => {
-    const li = document.createElement("li");
-    li.innerHTML = `<span class="w"></span><span class="d"></span><button type="button" aria-label="">✕</button>`;
-    $(".w", li).textContent = `${fmtW(x.weight)} lbs`;
-    $(".d", li).textContent = fmtDate(x.date);
-    const btn = $("button", li); btn.dataset.date = x.date; btn.setAttribute("aria-label", `Delete ${fmtDate(x.date)}`);
-    ul.append(li);
-  });
-  if (!list.length) ul.innerHTML = `<li><span class="d">No entries yet.</span></li>`;
-  $("#clear-weights").hidden = !list.length;
-  drawChart(list);
-}
-
-function drawChart(list) {
-  const svg = $("#chart"), NS = "http://www.w3.org/2000/svg";
-  const W = 340, H = 190, L = 40, R = 14, T = 14, B = 28;
-  svg.replaceChildren();
-  const el = (tag, attrs, text) => {
-    const n = document.createElementNS(NS, tag);
-    Object.entries(attrs).forEach(([k, v]) => n.setAttribute(k, v));
-    if (text !== undefined) n.textContent = text;
-    svg.append(n); return n;
-  };
-  if (!list.length) {
-    el("text", { x: W / 2, y: H / 2, "text-anchor": "middle", class: "empty" }, "Log your first weight to see your trend");
-    $("#chart-desc").textContent = "No weight entries yet.";
-    return;
-  }
-  const ws = list.map((x) => x.weight);
-  const lo = Math.floor((Math.min(...ws) - 2) / 5) * 5, hi = Math.ceil((Math.max(...ws) + 2) / 5) * 5;
-  const ts = list.map((x) => new Date(x.date + "T12:00:00").getTime());
-  const t0 = ts[0], t1 = ts[ts.length - 1];
-  const x = (t) => (t1 === t0 ? (L + W - R) / 2 : L + ((t - t0) / (t1 - t0)) * (W - L - R));
-  const y = (w) => T + (1 - (w - lo) / (hi - lo)) * (H - T - B);
-
-  const step = Math.max(5, Math.ceil((hi - lo) / 4 / 5) * 5);
-  for (let v = lo; v <= hi; v += step) {
-    el("line", { x1: L, x2: W - R, y1: y(v), y2: y(v), class: "grid" });
-    el("text", { x: L - 6, y: y(v) + 3.5, "text-anchor": "end", class: "axis" }, String(v));
-  }
-  const short = { month: "short", day: "numeric" };
-  el("text", { x: x(t0), y: H - 8, "text-anchor": t1 === t0 ? "middle" : "start", class: "axis" }, fmtDate(list[0].date, short));
-  if (t1 !== t0) el("text", { x: x(t1), y: H - 8, "text-anchor": "end", class: "axis" }, fmtDate(list[list.length - 1].date, short));
-
-  const pts = list.map((p, i) => [x(ts[i]), y(p.weight)]);
-  if (pts.length > 1) {
-    const line = pts.map(([a, b], i) => `${i ? "L" : "M"}${a.toFixed(1)},${b.toFixed(1)}`).join(" ");
-    el("path", { d: `${line} L${pts[pts.length - 1][0].toFixed(1)},${H - B} L${pts[0][0].toFixed(1)},${H - B} Z`, class: "area" });
-    el("path", { d: line, class: "line" });
-  }
-  pts.forEach(([a, b]) => el("circle", { cx: a, cy: b, r: 3.5, class: "dot" }));
-  $("#chart-desc").textContent = `Weight chart with ${list.length} entr${list.length === 1 ? "y" : "ies"}, from ` +
-    `${fmtW(list[0].weight)} lbs on ${fmtDate(list[0].date)} to ${fmtW(list[list.length - 1].weight)} lbs on ${fmtDate(list[list.length - 1].date)}.`;
-}
-
-// ---------- 4) Resource library ----------
-// Starter content written for patients. Rules for anyone editing (marketing/compliance):
-//   - no weight-loss numbers, timelines of results, or promises ("lose X lbs", "guaranteed")
-//   - no before/after or needle/injection imagery
-//   - don't name other weight-loss drugs alongside GLP-1s
-//   - general information only: always point back to the patient's own physician
-// TODO(confirm): have Dr. Fortino or his clinical team review and approve each guide before launch.
-// TODO(photo): the photos are placeholders (Unsplash, free license; see images/CREDITS.md). Swap in real ones.
-const NOT_ADVICE = `<p class="disclaimer">General information, not medical advice. Your own physician's instructions
-  always come first. In an emergency, call 911.</p>`;
+const NOT_ADVICE = `<p class="disclaimer">General information, not medical advice. It reports what research and guidance
+  say; your own physician's instructions always come first. In an emergency, call 911.</p>`;
+// TODO(confirm with Doc): the practice should approve this safety wording.
 const CALL_US = `<div class="callout urgent"><h2>Call the practice right away if you have</h2><ul>
   <li>Stomach pain that is severe or won't go away, with or without vomiting</li>
   <li>Vomiting or diarrhea that stops you keeping fluids down, or signs of dehydration such as dizziness or very
@@ -271,67 +382,73 @@ const CALL_US = `<div class="callout urgent"><h2>Call the practice right away if
   <li>Any symptom that worries you</li></ul>
   <p><strong>Call 911</strong> for swelling of the face, lips or throat, trouble breathing, or any other emergency.</p></div>`;
 
-const ARTICLES = [
-  { slug: "week-by-week", tag: "Getting started", title: "Your first months on a GLP-1: what to expect, week by week",
-    summary: "A calm, step-by-step picture of the early weeks, and what to focus on in each.",
+const GUIDES = [
+  { slug: "week-by-week", category: "Getting started", minutes: 4,
+    title: "Your first months on a GLP-1: what to expect",
+    summary: "What the early weeks often look like, based on how these programs are usually run.",
     img: "images/article-walking.jpg", alt: "A woman smiling as she walks down a leafy city street",
-    body: `<p>Everyone's experience is different, and your physician sets the pace of your plan. Here's a general picture
-      of how the first few months often go, so nothing catches you off guard.</p>
+    sources: [SRC.label, SRC.advisory],
+    body: `<p>Everyone's experience is different, and your physician sets the pace of your plan. This is a general
+      picture of how the first months often go, drawn from the medicines' prescribing information and published
+      clinical guidance.</p>
       <div class="week"><span class="when">Before you start</span><h2>Your evaluation</h2>
         <p>Dr. Fortino's team reviews your health history, current medications and goals, and may order lab work.
-        Ask anything: how and when to take your medication, what to do if you miss a dose, and how to store it.</p></div>
+        It's a good time to ask how to take and store your medication and what to do about a missed dose.</p></div>
       <div class="week"><span class="when">Weeks 1–4</span><h2>Getting used to it</h2>
-        <p>Plans usually start at a low dose so your body can adjust. You may notice you feel full sooner or think
-        about food less. Stomach side effects such as nausea are most common now and often ease with time.</p>
-        <p><strong>Focus on:</strong> small meals, protein first, water through the day, and noticing how you feel.</p></div>
+        <p>The prescribing information for these medicines describes starting at a low dose and increasing gradually,
+        on a schedule your physician sets. Stomach side effects such as nausea are the most commonly reported, and are
+        reported most often when starting or after a dose increase. Many people say they feel full sooner.</p></div>
       <div class="week"><span class="when">Weeks 5–8</span><h2>Settling in</h2>
-        <p>Your physician may adjust your dose based on how you're doing. Side effects can come back for a few days
-        after a change, so the habits from the first month still help.</p>
-        <p><strong>Focus on:</strong> regular meals, a daily walk, and good sleep.</p></div>
+        <p>Your physician may review your dose based on how you're doing. Side effects can return for a few days after
+        a change. The 2025 joint nutrition advisory highlights regular, nutrient-dense meals and enough fluids
+        during this phase.</p></div>
       <div class="week"><span class="when">Weeks 9–12</span><h2>Building habits</h2>
-        <p>Check-ins look at how you feel, any side effects and your progress. This is a good time to add
-        strength exercises and settle into a grocery routine.</p>
-        <p><strong>Focus on:</strong> strength work two or three times a week, and planning meals ahead.</p></div>
+        <p>The same advisory emphasizes enough protein plus strength training, because weight loss can include loss
+        of muscle. Check-ins with your care team look at how you feel, any side effects and your progress.</p></div>
       <div class="week"><span class="when">Month 3 and beyond</span><h2>The long game</h2>
-        <p>Progress looks different for everyone and is rarely a straight line. Slow weeks and plateaus are normal.
-        You and your physician keep reviewing the plan, including how long to continue.</p></div>
-      <p><strong>Never stop or change your dose on your own.</strong> Talk with the care team first.</p>
+        <p>Progress looks different for everyone and is rarely a straight line. You and your physician keep reviewing
+        the plan, including how long to continue.</p></div>
+      <p><strong>Don't stop or change your dose on your own.</strong> Your physician decides your dose; talk with the care team first.</p>
       ${CALL_US}` },
 
-  { slug: "side-effect-tips", tag: "Feeling your best", title: "Side-effect tips sheet",
-    summary: "Simple, practical ways to ease the most common stomach side effects.",
+  { slug: "side-effect-tips", category: "Feeling your best", minutes: 4,
+    title: "Side-effect tips sheet",
+    summary: "What clinical guidance suggests for the most common stomach side effects.",
     img: "images/article-calm-beach.jpg", alt: "A calm, misty beach in the early morning",
-    body: `<p>The most common side effects affect the stomach. They tend to be strongest when you start or after a dose
-      change, and often ease as your body adjusts. These tips help many people; your care team can help too.</p>
+    sources: [SRC.label, SRC.advisory, SRC.ginger],
+    // TODO(confirm with Doc): each strategy below is a direct suggestion; Dr. Fortino to approve or edit.
+    body: `<p>Stomach side effects are the most commonly reported ones with GLP-1 medicines. The prescribing
+      information notes they're reported most often when starting or after a dose increase. These are strategies
+      that published guidance describes; ask your care team which fit you.</p>
       <h2>Nausea</h2>
-      <ul><li>Eat smaller meals, slowly, and stop at the first sign of fullness.</li>
-      <li>Choose plain foods such as toast, crackers, rice or soup when you feel queasy.</li>
-      <li>Go easy on greasy, fried, very sweet or spicy foods.</li>
-      <li>Stay upright for a while after eating.</li>
-      <li>Sip cold water or ginger tea through the day.</li></ul>
+      <p>The 2025 joint advisory from four nutrition and obesity-medicine societies lists eating smaller meals,
+      eating slowly, stopping when you feel full and limiting high-fat, greasy foods.</p>
+      <p class="fine"><strong>About ginger:</strong> a 2014 review of 12 trials found ginger eased nausea in
+      <em>pregnancy</em>. It hasn't been studied in people taking GLP-1 medicines, so treat it as something some
+      people try, not a proven fix.</p>
       <h2>Constipation</h2>
-      <ul><li>Drink water steadily through the day.</li>
-      <li>Add fiber slowly: vegetables, fruit, beans, oats.</li>
-      <li>Move every day; even a short walk helps.</li>
-      <li>Ask the care team before taking a laxative.</li></ul>
+      <p>Guidance points to enough fluids, fiber from foods like vegetables, fruit, beans and oats (often added
+      gradually), and regular movement. Check with the care team before taking a laxative.</p>
       <h2>Diarrhea</h2>
-      <ul><li>Replace fluids, and ask about an electrolyte drink.</li>
-      <li>Avoid greasy foods and sugar-free sweets made with sugar alcohols.</li></ul>
+      <p>Replacing fluids matters most. Ask the care team whether an electrolyte drink makes sense for you.</p>
       <h2>Heartburn or burping</h2>
-      <ul><li>Keep portions small and avoid lying down for a few hours after eating.</li>
-      <li>Cut back on fizzy drinks, alcohol and coffee if they bother you.</li></ul>
+      <p>Smaller portions and not lying down soon after eating are commonly suggested. Some people find fizzy
+      drinks, alcohol or coffee make it worse.</p>
       <h2>Feeling tired or lightheaded</h2>
-      <ul><li>Don't skip meals entirely, even when you're not hungry.</li>
-      <li>Include protein at each meal and keep drinking water.</li>
-      <li>Stand up slowly.</li>
-      <li>If you also take diabetes medication, ask the care team which signs of low blood sugar to watch for.</li></ul>
+      <p>Eating very little can leave you low on energy and fluids, which is why guidance stresses not skipping
+      meals entirely and getting enough protein and fluids. If you also take diabetes medication, ask which signs of
+      low blood sugar to watch for.</p>
       ${CALL_US}` },
 
-  { slug: "grocery-list", tag: "Nutrition", title: "High-protein grocery list",
-    summary: "A ready-to-use list for easy, satisfying meals when your appetite is smaller.",
+  { slug: "grocery-list", category: "Nutrition", minutes: 3,
+    title: "High-protein grocery list",
+    summary: "Foods that fit the protein, fiber and fluid priorities in recent nutrition guidance.",
     img: "images/article-produce.jpg", alt: "Fresh broccoli and lettuce at a market",
-    body: `<p>When you're eating less, every bite matters. Protein helps you feel satisfied and helps protect muscle.
-      Take this list to the store, or screenshot it.</p>
+    sources: [SRC.advisory],
+    // TODO(confirm with Doc): the list and the "building a plate" order are suggestions to approve.
+    body: `<p>The 2025 joint advisory on nutrition with GLP-1 therapy emphasizes enough protein (to help preserve
+      muscle), fiber, fluids, and minimally processed, nutrient-dense foods. Here's a list built around those
+      priorities. Screenshot it for the store.</p>
       <h2>Protein</h2>
       <ul class="checklist"><li>Eggs or egg whites</li><li>Plain Greek yogurt</li><li>Cottage cheese</li>
       <li>Skinless chicken or turkey breast</li><li>Fish and seafood: salmon, tuna, shrimp</li>
@@ -345,63 +462,86 @@ const ARTICLES = [
       <ul class="checklist"><li>Oats</li><li>Quinoa or brown rice</li><li>Whole-grain bread or wraps</li></ul>
       <h2>Healthy fats (small portions)</h2>
       <ul class="checklist"><li>Avocado</li><li>Olive oil</li><li>Nuts, seeds and nut butter</li></ul>
-      <h2>Easy grab-and-go snacks</h2>
+      <h2>Easy grab-and-go</h2>
       <ul class="checklist"><li>String cheese</li><li>Hard-boiled eggs</li><li>Hummus with cut vegetables</li>
       <li>Turkey roll-ups</li><li>Ready-to-drink protein shakes (check the sugar)</li></ul>
       <h2>Drinks</h2>
       <ul class="checklist"><li>Water</li><li>Sparkling water, if bubbles don't bother you</li>
       <li>Unsweetened tea</li><li>Broth</li></ul>
-      <div class="callout"><h2>Building a plate</h2><p>Start with protein, fill up with vegetables, then add a
-      small portion of whole grains or fruit. If you have kidney disease or a special diet, ask the care team
-      before increasing protein.</p></div>` },
+      <div class="callout"><h2>Building a plate</h2><p>A common approach is protein first, then vegetables, then a
+      smaller portion of whole grains or fruit. How much protein is right for you is something your physician
+      decides, especially if you have kidney disease or a special diet.</p></div>` },
 
-  { slug: "travel-holidays", tag: "Real life", title: "Staying on track while traveling and over the holidays",
-    summary: "Trips, parties and family dinners, without losing your rhythm.",
+  { slug: "moving-more", category: "Movement", minutes: 3,
+    title: "Strength and movement: what the research says",
+    summary: "Why strength work and short walks come up again and again in the guidance.",
     img: "images/article-beach-walk.jpg", alt: "Two people walking along a quiet beach",
-    body: `<p>Vacations and holidays are part of life. A little planning keeps you comfortable and on track, and one
-      big meal or trip doesn't undo your progress.</p>
-      <h2>Before you go</h2>
-      <ul><li>Pack your medication in your carry-on, in its original pharmacy packaging with the label.</li>
-      <li>Follow the storage instructions from your pharmacy, and ask how to keep it at the right temperature on
-      the road.</li>
-      <li>If your dose day falls on a travel day or you'll cross time zones, ask the care team how to time it.</li>
-      <li>Bring a little more than you need in case of delays.</li></ul>
-      <h2>At parties and holiday meals</h2>
-      <ul><li>Have a protein-rich snack before you go, so you don't arrive starving.</li>
-      <li>Look over everything before you fill your plate; choose what you really love.</li>
-      <li>Start with protein and vegetables, use a smaller plate, and eat slowly.</li>
-      <li>"No thanks, I'm full" is a complete sentence. Leftovers are always an option.</li>
-      <li>Alcohol can make stomach side effects worse. Ask the care team what's right for you, and alternate with
-      water.</li></ul>
-      <h2>On the road</h2>
-      <ul><li>Pack easy snacks: protein bars, nuts, string cheese.</li>
-      <li>Drink plenty of water, especially on flights.</li>
-      <li>At restaurants, choose grilled over fried, ask for sauces on the side, and box half to take home.</li></ul>
-      <h2>Keep moving</h2>
-      <ul><li>Take a walk after big meals: around the neighborhood, on the boardwalk, or along the beach.</li>
-      <li>Explore on foot when you travel.</li></ul>
-      <div class="callout"><h2>Back home</h2><p>Go straight back to your usual routine at the next meal, and log
-      your weight in the Progress tab when you're ready. Bring any questions to your next check-in.</p></div>` },
+    sources: [SRC.pag, SRC.advisory, SRC.buffey],
+    // TODO(confirm with Doc): check-with-your-physician wording and any activity suggestions.
+    body: `<h2>Strength work</h2>
+      <p>The U.S. Physical Activity Guidelines recommend muscle-strengthening activity on two or more days a week for
+      adults. The 2025 joint advisory on GLP-1 therapy pairs strength training with enough protein to help
+      preserve muscle during weight loss.</p>
+      <h2>Overall activity</h2>
+      <p>The same federal guidelines recommend 150 to 300 minutes a week of moderate activity such as brisk walking,
+      and note that some activity is better than none.</p>
+      <h2>Short walks after sitting</h2>
+      <p>A 2022 review pooled seven short laboratory studies in adults. Breaking up long sitting with light walking
+      lowered blood sugar and insulin after meals more than sitting did. These were one-day studies, so they show a
+      short-term effect, not long-term results.</p>
+      <p>Check with your physician before starting a new exercise routine, especially if you have a heart, joint or
+      other health condition.</p>` },
 
-  { slug: "what-are-glp-1s", tag: "The basics", title: "What are GLP-1 medications?",
+  { slug: "travel-holidays", category: "Real life", minutes: 4,
+    title: "Staying on track while traveling and over the holidays",
+    summary: "Trips, parties and family dinners, without losing your rhythm.",
+    img: "images/home-coast.jpg", alt: "Beach dunes and a wooden fence at sunrise",
+    sources: [SRC.tsa, SRC.advisory],
+    // TODO(confirm with Doc): medication-travel wording, alcohol wording and the party strategies.
+    body: `<p>Vacations and holidays are part of life, and one big meal or trip doesn't undo your work. Here's
+      what official guidance and other patients' experience suggest.</p>
+      <h2>Traveling with medication</h2>
+      <p>TSA allows medically necessary liquid medication over 3.4 oz in carry-on bags in reasonable quantities.
+      Tell the officer at the start of screening; it may get extra screening. TSA recommends, but doesn't require,
+      keeping the pharmacy label on it.</p>
+      <p>Ask your pharmacy how to keep your medication at the right temperature while traveling, and ask the care
+      team how to time doses if you'll cross time zones or travel on a dose day.</p>
+      <h2>At parties and holiday meals</h2>
+      <p>Strategies many people use: a protein-rich snack before going out, looking over everything before filling a
+      plate, starting with protein and vegetables, and eating slowly, which also matches the advisory's tips for
+      stomach side effects. "No thanks, I'm full" is a complete sentence.</p>
+      <p>Alcohol can add to stomach upset and dehydration for some people. Ask your care team what's right for you.</p>
+      <h2>On the road</h2>
+      <p>Packing snacks and water helps when meals are unpredictable. At restaurants, grilled dishes, sauces on the
+      side and boxing up half are easy swaps.</p>
+      <h2>Keep moving</h2>
+      <p>A walk after a big meal, on the boardwalk or along the beach, fits the research on short walks after
+      sitting (see "Strength and movement").</p>
+      <div class="callout"><h2>Back home</h2><p>Pick your routine back up at the next meal, tick your habits on the
+      Today tab, and bring any questions to your next check-in.</p></div>` },
+
+  { slug: "what-are-glp-1s", category: "The basics", minutes: 3,
+    title: "What are GLP-1 medications?",
     summary: "How this group of medicines works, in plain English.",
     img: "images/article-ocean.jpg", alt: "Sun shining over gentle ocean waves",
+    sources: [SRC.label, SRC.advisory],
     body: `<p>GLP-1 is a hormone your gut releases after you eat. It helps signal fullness and helps your body manage
-      blood sugar.</p>
-      <p>GLP-1 medications act like that hormone. In general, they can:</p>
+      blood sugar. GLP-1 medicines act like that hormone. According to their prescribing information, they can:</p>
       <ul><li>help you feel full sooner and for longer</li><li>slow how quickly your stomach empties</li>
       <li>help regulate blood sugar</li></ul>
       <h2>Good to know</h2>
       <ul><li>They're prescription-only. A licensed physician decides whether one is appropriate for you.</li>
-      <li>Side effects such as nausea, constipation or diarrhea are common, especially when starting or changing a
-      dose. See the side-effect tips sheet.</li>
-      <li>They aren't right for everyone. For example, they're generally not used during pregnancy or by people with a
-      personal or family history of certain thyroid cancers.</li>
-      <li>They work alongside changes in eating and activity, not instead of them.</li></ul>` },
+      <li>Stomach side effects are the most commonly reported. See the side-effect tips sheet.</li>
+      <li>They aren't right for everyone. Their labeling includes warnings, for example about certain thyroid
+      cancers, and they're generally not used during pregnancy.</li>
+      <li>The 2025 joint advisory notes that, on their own, they're not enough: nutrition, activity, sleep and other
+      habits matter too.</li></ul>` },
 
-  { slug: "first-consult", tag: "Your visit", title: "What to expect at your first consult",
+  { slug: "first-consult", category: "Your visit", minutes: 2,
+    title: "What to expect at your first consult",
     summary: "How to prepare, and what you'll talk about with Dr. Fortino's team.",
     img: "images/article-consult.jpg", alt: "A smiling woman outside a bright office building",
+    sources: [],
     body: `<p>Your first consult is a conversation, with no obligation.</p>
       <h2>What to bring</h2>
       <ul class="checklist"><li>A list of your current medications and supplements</li>
@@ -411,24 +551,49 @@ const ARTICLES = [
       <li>Whether a program, and which kind, makes sense for you</li><li>Next steps, which may include lab work</li></ul>` },
 ];
 
-const articleList = $("#article-list");
-ARTICLES.forEach((a) => {
-  const li = document.createElement("li");
-  li.innerHTML = `<a href="#learn/${a.slug}"><img loading="lazy" width="800" height="450"><small></small><strong></strong><span></span></a>`;
-  const img = $("img", li); img.src = a.img; img.alt = "";
-  $("small", li).textContent = a.tag; $("strong", li).textContent = a.title; $("span", li).textContent = a.summary;
-  articleList.append(li);
-});
+let guideFilter = "All";
+function renderGuideList() {
+  const used = CATEGORIES.filter((c) => GUIDES.some((g) => g.category === c));
+  const chips = $("#guide-filters");
+  chips.replaceChildren();
+  ["All", ...used].forEach((c) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.textContent = c; b.setAttribute("aria-pressed", c === guideFilter);
+    b.addEventListener("click", () => { guideFilter = c; renderGuideList(); });
+    chips.append(b);
+  });
+  const list = $("#guide-list");
+  list.replaceChildren();
+  used.filter((c) => guideFilter === "All" || c === guideFilter).forEach((c) => {
+    const h = document.createElement("h2"); h.className = "h3 section-title"; h.textContent = c;
+    const ul = document.createElement("ul"); ul.className = "articles";
+    GUIDES.filter((g) => g.category === c).forEach((g) => {
+      const li = document.createElement("li");
+      li.innerHTML = `<a href="#learn/${g.slug}"><img loading="lazy" width="800" height="450" alt=""><small></small><strong></strong><span></span></a>`;
+      $("img", li).src = g.img;
+      $("small", li).textContent = `${g.minutes} min read${g.reviewed ? "" : " · Draft"}`;
+      $("strong", li).textContent = g.title; $("span", li).textContent = g.summary;
+      ul.append(li);
+    });
+    list.append(h, ul);
+  });
+}
+
 function renderArticle(slug) {
-  const a = ARTICLES.find((x) => x.slug === slug);
-  if (!a) return false;
+  const g = GUIDES.find((x) => x.slug === slug);
+  if (!g) return false;
+  const sources = g.sources.length
+    ? `<h2>Sources</h2><ol class="sources">${g.sources.map(() => "<li><a target=\"_blank\" rel=\"noopener\"></a></li>").join("")}</ol>` : "";
   $("#article-body").innerHTML = `<img class="article-photo" width="800" height="450"><p class="eyebrow"></p><h1></h1>
-    ${a.body}${NOT_ADVICE}<a href="#book" class="btn btn-primary btn-block">Book a free consult</a>`;
-  const img = $("#article-body .article-photo"); img.src = a.img; img.alt = a.alt;
-  $("#article-body .eyebrow").textContent = a.tag;
-  $("#article-body h1").textContent = a.title;
+    ${g.reviewed ? "" : '<p class="draft-flag">Draft · awaiting review by Dr. Fortino</p>'}
+    ${g.body}${sources}${NOT_ADVICE}<a href="#care/book" class="btn btn-primary btn-block">Request a free consult</a>`;
+  const img = $("#article-body .article-photo"); img.src = g.img; img.alt = g.alt;
+  $("#article-body .eyebrow").textContent = `${g.category} · ${g.minutes} min read`;
+  $("#article-body h1").textContent = g.title;
+  $$("#article-body .sources a").forEach((a, i) => { a.href = g.sources[i].url; a.textContent = g.sources[i].label; });
   return true;
 }
+renderGuideList();
 
 // ---------- 5) Membership interest + 6) consult request (nothing is sent) ----------
 $("#join-btn").addEventListener("click", () => {

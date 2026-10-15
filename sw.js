@@ -2,7 +2,7 @@
 // It caches only the app's own files. It never caches or sees form data (nothing is sent anywhere yet).
 // TODO(HIPAA): once the app talks to a real backend, never cache API responses that contain patient data here.
 // Bump VERSION whenever any app file changes, so phones pick up the new version.
-const VERSION = "fortino-v2";
+const VERSION = "fortino-v3";
 const SHELL = [
   "./", "./index.html", "./styles.css", "./app.js", "./manifest.json",
   "./icons/icon.svg", "./icons/icon-192.png", "./icons/icon-512.png",

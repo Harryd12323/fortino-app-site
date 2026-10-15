@@ -3,7 +3,7 @@
   "short_name": "Dr. Fortino",
   "description": "Physician-guided weight loss with Dr. Fortino: readiness quiz, progress tracking, resources and consult booking for medical weight loss.",
   "id": "./",
-  "start_url": "./#home",
+  "start_url": "./#today",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
