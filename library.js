@@ -409,3 +409,64 @@ const FEELINGS = [
   { label: "Need motivation", ids: ["values"] },
   { label: "Want to move", ids: ["mindful-walk"] },
 ];
+
+// ---------- MOVE: "Find your starting point" ----------
+// TODO(confirm with Doc): these answers and rules pick a starting set from the sessions above; no new content.
+// An activity suggestion, not medical advice. Joint pain or any listed symptom → "check with your care team" instead
+// of recommendations. Starter-tier sessions only for people just starting out, low on energy, or 60 and over
+// (the workout report's weeks 1 to 4 and its slower progression for older adults).
+
+const START_QUIZ = {
+  ages: ["18–29", "30–44", "45–59", "60–74", "75 or older"],          // index 3+ = 60 and over
+  goals: [
+    { id: "strength", label: "Build strength" }, { id: "endurance", label: "Improve endurance" },
+    { id: "more", label: "Move more" }, { id: "balance", label: "Better balance" },
+  ],
+  struggles: [
+    { id: "energy", label: "Low energy" }, { id: "pain", label: "Joint pain" },
+    { id: "time", label: "Short on time" }, { id: "start", label: "Just starting out" },
+  ],
+  equipment: [{ id: "chair", label: "Chair" }, { id: "band", label: "Resistance band" }, { id: "bike", label: "Stationary bike" }],
+  times: [{ max: 10, label: "5–10 min" }, { max: 15, label: "10–15 min" }, { max: 20, label: "15–20 min" }, { max: 30, label: "20 min or more" }],
+  // Asked each time, never saved: they describe right now.
+  symptoms: ["Chest pain or pressure", "Fainting, or feeling like you might faint", "Unusual shortness of breath",
+             "Severe or persistent belly pain", "A new injury, or pain that's getting worse"],
+};
+
+// Equipment a session needs beyond a wall or counter (which everyone is assumed to have).
+const SESSION_NEEDS = { "chair-strength": ["chair"], "band-basics": ["band"], "strength-circuit": ["chair", "band"], "bike-intervals": ["bike"] };
+const STARTER_SESSIONS = ["mobility-reset", "chair-strength", "strength-basics", "balance-builder", "after-meal-walk", "low-impact-cardio"];
+// For each goal: sessions that serve it (primary), then ones that round out the week (support), in order of preference.
+const GOAL_SESSIONS = {
+  strength: { primary: ["chair-strength", "strength-basics", "band-basics", "strength-circuit"], support: ["after-meal-walk", "low-impact-cardio", "walk-intervals"] },
+  endurance: { primary: ["after-meal-walk", "low-impact-cardio", "walk-intervals", "bike-intervals"], support: ["strength-basics", "chair-strength", "band-basics"] },
+  more: { primary: ["after-meal-walk", "mobility-reset", "low-impact-cardio"], support: ["strength-basics", "chair-strength"] },
+  balance: { primary: ["balance-builder", "mobility-reset"], support: ["chair-strength", "strength-basics"] },
+};
+
+// answers: { age: index, goal, struggle, equipment: [ids], time: max minutes } → [{ id, why }] (up to 3)
+function recommendSessions(a) {
+  const beginner = a.struggle === "start" || a.struggle === "energy" || a.age >= 3;
+  const has = (id) => (SESSION_NEEDS[id] || []).every((e) => a.equipment.includes(e));
+  const fits = (id) => has(id) && MOVE_SESSIONS.find((m) => m.id === id).min <= a.time && (!beginner || STARTER_SESSIONS.includes(id));
+  const usesKit = (id) => (SESSION_NEEDS[id] ? 1 : 0);
+  const g = GOAL_SESSIONS[a.goal], goalWhy = `Fits your goal: ${START_QUIZ.goals.find((x) => x.id === a.goal).label.toLowerCase()}.`;
+  let primary = g.primary.filter(fits), support = g.support.filter(fits);
+  if (!beginner) primary = [...primary].sort((x, y) => usesKit(y) - usesKit(x));   // use the kit they said they have
+
+  const picks = [];
+  const add = (id, why) => { if (id && !picks.some((p) => p.id === id) && fits(id) && picks.length < 3) picks.push({ id, why }); };
+  primary.slice(0, 2).forEach((id) => add(id, goalWhy));
+  add(support[0], "Rounds out your week: strength and aerobic activity work well together.");
+  [...primary, ...support].forEach((id) => add(id, goalWhy));
+  add("mobility-reset", "A gentle way to get moving.");
+
+  const swapIn = (id, why) => {
+    if (picks.some((p) => p.id === id) || !fits(id)) return;
+    if (picks.length === 3) picks.pop();
+    picks.push({ id, why });
+  };
+  if (a.struggle === "energy") swapIn("mobility-reset", "An easy option for low-energy days.");
+  if (a.age >= 3 && a.goal !== "balance") swapIn("balance-builder", "Balance practice builds steadiness and confidence on your feet.");
+  return picks;
+}

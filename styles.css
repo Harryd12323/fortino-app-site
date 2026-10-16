@@ -541,3 +541,23 @@ main {
 .player-controls .btn:disabled { opacity: .4; cursor: default; }
 .player-safety { margin-top: 1rem; }
 #player-title:focus, #player-end-title:focus { outline: none; }
+
+/* Move: Find your starting point */
+.start-quiz .chips label { flex: 0 1 auto; }
+.start-quiz .q { margin-bottom: 1.1rem; }
+.start-quiz .check { margin: .1rem 0 .4rem; color: var(--ink); }
+.start-head { font-size: 1rem; margin: 0 0 .25rem; }
+.start-picks { list-style: none; padding: 0; margin: .75rem 0 0; display: grid; gap: .75rem; }
+.start-picks li { border: 1px solid var(--line); border-radius: 12px; padding: .8rem .9rem; }
+.start-pick-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+.start-picks p { margin: .3rem 0 .6rem; }
+.start-pick-actions { display: flex; gap: .5rem; }
+.start-pick-actions .btn { flex: 1; min-height: 44px; padding: .5rem .75rem; font-size: .95rem; }
+#start-body:focus { outline: none; }
+.session { scroll-margin-top: 5.5rem; }   /* "Details" lands below the sticky header */
+
+/* Privacy Policy / Terms links: small and out of the way */
+.legal-links { margin: 1.5rem 0 .5rem; text-align: center; font-size: .8rem; color: var(--muted); }
+.legal-links a { color: var(--muted); display: inline-block; padding: .6rem .25rem; }
+.legal .draft-flag { margin-bottom: .75rem; }
+.legal .callout p { margin: 0; }

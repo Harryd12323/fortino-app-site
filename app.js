@@ -52,13 +52,14 @@ const load = (key, fallback) => { try { return JSON.parse(localStorage.getItem(k
 const save = (key, value) => { localStorage.setItem(key, JSON.stringify(value)); queuePush(key); };
 const KEYS = { habits: "fortino.habits", checkins: "fortino.checkins", waist: "fortino.waist", wins: "fortino.wins",
                goal: "fortino.goal", workoutTimes: "fortino.workoutTimes",   // these two: this device only, not synced
+               moveQuiz: "fortino.moveQuiz",
                oldWeights: "fortino.weights" };   // oldWeights: left by the earlier version; only ever deleted
 
 // ---------- Account & sync (TEST BUILD, see TODO(auth) above) ----------
 // localStorage stays the working copy, so the app works offline. When signed in, every save() is also upserted to
 // Supabase (one row per key). On sign-in, account data is merged with whatever is on this device.
 // Signing out removes the synced data from this device.
-const SYNCED = [KEYS.habits, KEYS.checkins, KEYS.waist, KEYS.wins];
+const SYNCED = [KEYS.habits, KEYS.checkins, KEYS.waist, KEYS.wins, KEYS.moveQuiz];   // must match supabase/schema.sql
 const SB = window.SUPABASE_CONFIG || {};
 const sb = window.supabase && SB.url && !SB.url.includes("YOUR-PROJECT-REF")
   ? window.supabase.createClient(SB.url, SB.publishableKey, { auth: { flowType: "pkce", detectSessionInUrl: false } })
@@ -78,8 +79,11 @@ async function pushPending() {
   if (!user || !pending.size) return;
   const rows = [...pending].map((key) => ({ user_id: user.id, key, value: load(key, null) })).filter((r) => r.value !== null);
   pending.clear();
-  const { error } = rows.length ? await sb.from("user_data").upsert(rows) : {};
-  if (error) { rows.forEach((r) => pending.add(r.key)); console.warn("Sync failed", error); }
+  // One request per key, so a key the database doesn't accept yet (schema not re-run) can't block the others.
+  const results = await Promise.all(rows.map((r) => sb.from("user_data").upsert(r)));
+  results.forEach(({ error }, i) => {
+    if (error) { pending.add(rows[i].key); console.warn("Sync failed", rows[i].key, error); }
+  });
   renderAccount();
 }
 window.addEventListener("online", pushPending);
@@ -117,7 +121,7 @@ function renderAccount() {
   $("#account-email").textContent = user.email;
   $("#sync-status").textContent = pending.size
     ? "Some changes haven't synced yet. They'll sync when you're back online."
-    : "Your habits, check-ins, waist entries and wins are synced.";
+    : "Your habits, check-ins, waist entries, wins and Move starting point are synced.";
 }
 
 if (sb) {
@@ -168,12 +172,19 @@ function route() {
   if (view === "today") renderToday();
   if (view === "progress") renderProgress();
   if (view === "more") renderInstallState();
-  if (view === "learn") showLearnPanel(sub);
+  if (view === "learn") { showLearnPanel(sub); renderStart(); }
   $("#main").focus({ preventScroll: true });
   if (view === "care" && arg === "book") $("#book").scrollIntoView();
   else window.scrollTo(0, 0);
 }
-window.addEventListener("hashchange", route);
+window.addEventListener("hashchange", () => { movedInApp = true; route(); });
+// "← Back" on pages opened from more than one place (Privacy Policy, Terms): go back if we came from inside the
+// app, otherwise fall back to the link's href.
+let movedInApp = false;
+document.addEventListener("click", (e) => {
+  const a = e.target.closest("[data-back]");
+  if (a && movedInApp) { e.preventDefault(); history.back(); }
+});
 
 // ---------- Habits (shared by Today and Progress) ----------
 const HABITS = [
@@ -813,6 +824,7 @@ function renderMove() {
   MOVE_SESSIONS.forEach((m) => {
     const el = document.createElement("article");
     el.className = "card session";
+    el.id = `session-${m.id}`;
     el.innerHTML = `<div class="card-row"><span class="round-icon" aria-hidden="true">${MOVE_ICONS[m.kind]}</span>
         <div><h2 class="h3"></h2><p class="muted-line"></p></div><span class="tag tag-soft"></span></div>
       <p class="session-impact"></p>
@@ -876,6 +888,105 @@ function renderMind() {
 }
 renderMove();
 renderMind();
+
+// ---------- Move: "Find your starting point" (questions and rules in library.js; TODO(confirm with Doc)) ----------
+// Saves { age, goal, struggle, equipment, time, careTeam } to KEYS.moveQuiz (synced). Which symptoms someone ticked
+// is never saved; ticking any, or choosing joint pain, shows "check with your care team" instead of sessions.
+const startForm = $("#start-form");
+(function buildStartQuestions() {
+  const q = START_QUIZ;
+  const group = (type, name, legend, opts) => `<fieldset class="q"><legend>${legend}</legend><div class="chips chips-wrap">${
+    opts.map(([v, l]) => `<label><input type="${type}" name="${name}" value="${v}"><span>${l}</span></label>`).join("")}</div></fieldset>`;
+  $("#start-questions").innerHTML =
+    group("radio", "age", "Your age", q.ages.map((l, i) => [i, l])) +
+    group("radio", "goal", "Your main goal", q.goals.map((g) => [g.id, g.label])) +
+    group("radio", "struggle", "Your biggest struggle", q.struggles.map((s) => [s.id, s.label])) +
+    group("checkbox", "equipment", "Equipment you have (pick any)", [["none", "None"], ...q.equipment.map((e) => [e.id, e.label])]) +
+    group("radio", "time", "Time per session", q.times.map((t) => [t.max, t.label])) +
+    `<fieldset class="q"><legend>Right now, do you have any of these?</legend>${
+      [...q.symptoms.map((s, i) => [i, s]), ["none", "None of these"]].map(([v, l]) =>
+        `<label class="check"><input type="checkbox" name="symptom" value="${v}"><span>${l}</span></label>`).join("")}</fieldset>`;
+})();
+// "None" / "None of these" can't be ticked together with anything else.
+startForm.addEventListener("change", (e) => {
+  const t = e.target;
+  if (t.type !== "checkbox" || !t.checked) return;
+  $$(`input[name="${t.name}"]`, startForm).forEach((x) => {
+    if (x !== t && (t.value === "none" || x.value === "none")) x.checked = false;
+  });
+});
+
+startForm.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const f = startForm.elements, err = $(".form-error", startForm);
+  const ticked = (name) => $$(`input[name="${name}"]:checked`, startForm).map((x) => x.value);
+  const equipment = ticked("equipment"), symptoms = ticked("symptom");
+  if (!f.age.value || !f.goal.value || !f.struggle.value || !f.time.value || !equipment.length || !symptoms.length) {
+    err.textContent = "Please answer every question. For equipment and symptoms, choose “None” if nothing applies.";
+    return;
+  }
+  err.textContent = "";
+  save(KEYS.moveQuiz, { age: Number(f.age.value), goal: f.goal.value, struggle: f.struggle.value,
+    equipment: equipment.filter((x) => x !== "none"), time: Number(f.time.value), careTeam: !symptoms.includes("none") });
+  renderStart();
+  $("#start-body").focus();
+});
+
+$("#start-redo").addEventListener("click", () => {
+  const a = load(KEYS.moveQuiz, null);
+  startForm.reset();
+  if (a) {
+    ["age", "goal", "struggle", "time"].forEach((n) => { const r = $(`input[name="${n}"][value="${a[n]}"]`, startForm); if (r) r.checked = true; });
+    (a.equipment.length ? a.equipment : ["none"]).forEach((v) => { const c = $(`input[name="equipment"][value="${v}"]`, startForm); if (c) c.checked = true; });
+  }
+  // Symptoms are always asked fresh.
+  startForm.hidden = false; $("#start-result").hidden = true;
+  $("legend", startForm).scrollIntoView({ block: "center" });
+});
+
+function renderStart() {
+  const a = load(KEYS.moveQuiz, null);
+  startForm.hidden = Boolean(a);
+  $("#start-result").hidden = !a;
+  if (!a) return;
+  const body = $("#start-body");
+  if (a.careTeam || a.struggle === "pain") {
+    const why = [a.struggle === "pain" && "joint pain", a.careTeam && "symptoms that need checking first"].filter(Boolean).join(" and ");
+    body.innerHTML = `<div class="pro-note"><strong>Check with your care team first</strong><span></span></div>
+      <p class="fine">If you have chest pain, fainting, or severe shortness of breath, call <a href="tel:911">911</a>.</p>
+      <a href="#care" class="btn btn-ghost btn-block">Contact the office</a>`;
+    $(".pro-note span", body).textContent = `You mentioned ${why}. Your care team can tell you which kinds of activity
+      are right for you and how to adjust them, so we won't suggest sessions until you've checked with them.`;
+    return;
+  }
+  body.innerHTML = `<h3 class="start-head">Your starting point</h3>
+    <p class="fine">Based on your answers, here are three sessions to start with. Try them on different days this week,
+      at an easy to moderate pace. This is an activity suggestion, not medical advice.</p><ol class="start-picks"></ol>`;
+  recommendSessions(a).forEach(({ id, why }) => {
+    const m = MOVE_SESSIONS.find((x) => x.id === id);
+    const li = document.createElement("li");
+    li.innerHTML = `<div class="start-pick-head"><strong></strong><span class="tag tag-soft"></span></div><p class="fine"></p>
+      <div class="start-pick-actions"><button type="button" class="btn btn-primary">Start timer</button>
+      <a class="btn btn-ghost" href="#learn/move">Details</a></div>`;
+    $("strong", li).textContent = m.name;
+    $(".tag", li).textContent = `${m.min} min`;
+    $("p", li).textContent = why;
+    const start = $("button", li);
+    start.setAttribute("aria-label", `Start ${m.name} timer`);
+    start.addEventListener("click", () => openPlayer({ name: m.name, timed: true, steps: m.steps,
+      safety: "Stop for chest pain, fainting, unusual shortness of breath, or sharp pain.", opener: start }));
+    const details = $("a", li);
+    details.setAttribute("aria-label", `${m.name} details`);
+    details.addEventListener("click", (e) => {
+      e.preventDefault();
+      const card = $(`#session-${id}`);
+      $("details", card).open = true;
+      card.scrollIntoView({ block: "start" });
+      $("h2", card).setAttribute("tabindex", "-1"); $("h2", card).focus({ preventScroll: true });
+    });
+    $(".start-picks", body).append(li);
+  });
+}
 
 // ---------- Step player: a timer for Move, self-paced steps for Mind ----------
 const player = { steps: [], i: 0, timed: false, running: false, endAt: 0, leftMs: 0, ticker: null, lock: null, opener: null };
