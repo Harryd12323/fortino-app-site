@@ -855,6 +855,14 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("#ins
 // ---------- Service worker (offline + installable). Needs https or localhost. ----------
 if ("serviceWorker" in navigator && (location.protocol === "https:" || ["localhost", "127.0.0.1"].includes(location.hostname))) {
   window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+  // When a newly published version's worker takes over (sw.js: skipWaiting + clients.claim), reload once so this
+  // page runs the new files instead of the old copies it already loaded. Not on a first visit (no worker yet).
+  if (navigator.serviceWorker.controller) {
+    let reloading = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (!reloading) { reloading = true; location.reload(); }
+    });
+  }
 }
 
 showStep(1);
