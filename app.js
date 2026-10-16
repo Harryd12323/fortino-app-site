@@ -51,6 +51,7 @@ const fmtDate = (s, opts = { month: "short", day: "numeric", year: "numeric" }) 
 const load = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } };
 const save = (key, value) => { localStorage.setItem(key, JSON.stringify(value)); queuePush(key); };
 const KEYS = { habits: "fortino.habits", checkins: "fortino.checkins", waist: "fortino.waist", wins: "fortino.wins",
+               goal: "fortino.goal", workoutTimes: "fortino.workoutTimes",   // these two: this device only, not synced
                oldWeights: "fortino.weights" };   // oldWeights: left by the earlier version; only ever deleted
 
 // ---------- Account & sync (TEST BUILD, see TODO(auth) above) ----------
@@ -108,6 +109,8 @@ function renderAccount() {
   if (!sb) return;
   $("#account").hidden = false;
   $("#account-out").hidden = Boolean(user);
+  $("#signed-in-bar").hidden = !user;
+  $("#signed-in-email").textContent = user ? user.email : "";
   $("#account-in").hidden = !user;
   $(".preview-pill").title = user ? "Test account: use made-up information only" : "Nothing is sent or stored on a server yet";
   if (!user) return;
@@ -144,7 +147,7 @@ if (sb) {
 }
 
 // ---------- Router ----------
-// #today (default) #progress #plan #care #care/book #learn #learn/<slug> #quiz #more #privacy
+// #today (default) #progress #plan #care #care/book #learn #learn/move #learn/mind #learn/<slug> #quiz #more #privacy
 const ALIASES = { home: "today", membership: "plan", book: "care", menu: "more" };   // links from older versions
 const TAB_FOR = { today: "today", quiz: "today", progress: "progress", plan: "plan", care: "care",
                   learn: "learn", article: "learn" };
@@ -152,7 +155,8 @@ const TAB_FOR = { today: "today", quiz: "today", progress: "progress", plan: "pl
 function route() {
   let [name, arg] = (location.hash.slice(1) || "today").split("/");
   if (ALIASES[name]) { if (name === "book") arg = "book"; name = ALIASES[name]; }
-  let view = name === "learn" && arg ? "article" : name;
+  const sub = name === "learn" && (arg === "move" || arg === "mind") ? arg : "articles";   // Learn sub-tabs
+  let view = name === "learn" && arg && sub === "articles" ? "article" : name;
   if (!$(`[data-view="${view}"]`)) view = "today";
   if (view === "article" && !renderArticle(arg)) { location.replace("#learn"); return; }
 
@@ -164,6 +168,7 @@ function route() {
   if (view === "today") renderToday();
   if (view === "progress") renderProgress();
   if (view === "more") renderInstallState();
+  if (view === "learn") showLearnPanel(sub);
   $("#main").focus({ preventScroll: true });
   if (view === "care" && arg === "book") $("#book").scrollIntoView();
   else window.scrollTo(0, 0);
@@ -201,8 +206,49 @@ function bestStreak(log, id) {
 }
 
 // ---------- TODAY ----------
+const ordinal = (n) => { const s = ["th", "st", "nd", "rd"], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); };
+function greeting(d = new Date()) {
+  const part = (opt) => d.toLocaleDateString("en-US", opt);
+  return `Happy ${part({ weekday: "long" })}, ${part({ month: "long" })} ${ordinal(d.getDate())}`;
+}
+
+// TODO(confirm with Doc): placeholder weekly plan of Move sessions (library.js), index 0 = Sunday. A gentle early
+// mix: strength on non-consecutive days (Tue, Thu). Later this should come from the patient's care plan.
+const WEEK_PLAN = ["mobility-reset", "after-meal-walk", "chair-strength", "balance-builder", "strength-basics",
+                   "low-impact-cardio", "after-meal-walk"];
+const todaysSession = () => MOVE_SESSIONS.find((m) => m.id === WEEK_PLAN[new Date().getDay()]);
+const fmtTime = (t) => new Date(`2000-01-01T${t}`).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+
+function renderGoal() {
+  const goal = load(KEYS.goal, "");
+  $("#goal-show").hidden = !goal;
+  $("#goal-form").hidden = Boolean(goal);
+  $("#goal-text").textContent = goal;
+}
+
+function renderWorkout() {
+  const w = todaysSession(), day = todayISO();
+  $("#workout-title").textContent = w.name;
+  $("#workout-min").textContent = `${w.min} min`;
+  $("#workout-detail").textContent = w.forWhat;
+  $("#workout-equipment").textContent = w.equipment;
+  $("#workout-safety").textContent = w.safety;
+  $("#workout-start").textContent = `Start ${w.min}-minute timer`;
+  const t = load(KEYS.workoutTimes, {})[day];
+  $("#workout-time-form").hidden = Boolean(t);
+  $("#workout-time-show").hidden = !t;
+  if (t) $("#workout-time-text").textContent = `Planned for ${fmtTime(t)}`;
+  // Done ticks the "Movement or strength" habit, so it counts toward that streak.
+  const done = isDone(habitsLog(), day, "movement"), btn = $("#workout-done");
+  btn.textContent = done ? "✓ Done for today" : "Mark as done";
+  btn.setAttribute("aria-pressed", done);
+
+}
+
 function renderToday() {
-  $("#today-date").textContent = new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+  $("#today-title").textContent = greeting();
+  renderGoal();
+  renderWorkout();
   const log = habitsLog(), day = todayISO();
   const ul = $("#today-habits");
   ul.replaceChildren();
@@ -263,6 +309,57 @@ $("#checkin-edit").addEventListener("click", () => {
     const r = $(`input[name="${n}"][value="${c[n]}"]`, checkinForm); if (r) r.checked = true;
   });
   $("#checkin-form").hidden = false; $("#checkin-done").hidden = true;
+});
+
+// Goal
+const goalForm = $("#goal-form");
+$("#goal-ideas").addEventListener("click", (e) => {
+  if (e.target.tagName === "BUTTON") { goalForm.elements.goal.value = e.target.textContent; goalForm.elements.goal.focus(); }
+});
+goalForm.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const goal = goalForm.elements.goal.value.trim(), err = $(".form-error", goalForm);
+  if (!goal) { err.textContent = "Write a goal, or tap one of the ideas."; return; }
+  // Guardrail: the app doesn't track weight, so goals stay about habits and how you feel.
+  if (/\d\s*(lb|lbs|pound|kg|kilo)|\b(lose|losing|drop|shed)\b.*\d/i.test(goal)) {
+    err.textContent = "Let's keep this about habits or how you want to feel. Your care team tracks the medical side with you.";
+    return;
+  }
+  err.textContent = "";
+  save(KEYS.goal, goal.slice(0, 100));
+  toast("Goal saved.");
+  renderToday();
+});
+$("#goal-edit").addEventListener("click", () => {
+  goalForm.elements.goal.value = load(KEYS.goal, "");
+  $("#goal-show").hidden = true; goalForm.hidden = false; goalForm.elements.goal.focus();
+});
+
+// Workout time and done
+const timeForm = $("#workout-time-form");
+timeForm.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const t = timeForm.elements.time.value;
+  $("#workout-time-error").textContent = t ? "" : "Choose a time.";
+  if (!t) return;
+  save(KEYS.workoutTimes, { [todayISO()]: t });   // only today's plan is kept
+  toast(`Workout planned for ${fmtTime(t)}.`);
+  renderToday();
+});
+$("#workout-time-edit").addEventListener("click", () => {
+  timeForm.elements.time.value = load(KEYS.workoutTimes, {})[todayISO()] || "";
+  $("#workout-time-show").hidden = true; timeForm.hidden = false; timeForm.elements.time.focus();
+});
+$("#workout-start").addEventListener("click", (e) => {
+  const w = todaysSession();
+  openPlayer({ name: w.name, timed: true, steps: w.steps,
+    safety: "Stop for chest pain, fainting, unusual shortness of breath, or sharp pain.", opener: e.currentTarget });
+});
+$("#workout-done").addEventListener("click", () => {
+  const done = isDone(habitsLog(), todayISO(), "movement");
+  setHabit(todayISO(), "movement", !done);
+  if (!done) toast("Nice work. Movement ticked for today.");
+  renderToday();
 });
 
 // ---------- PROGRESS (behaviors only; never weight) ----------
@@ -697,6 +794,211 @@ function renderArticle(slug) {
 }
 renderGuideList();
 
+// ---------- LEARN → Move and Mind (content in library.js; TODO(confirm) clinical review) ----------
+function showLearnPanel(sub) {
+  $$("[data-panel]").forEach((p) => { p.hidden = p.dataset.panel !== sub; });
+  $$(".subtabs a").forEach((a) => {
+    if (a.dataset.sub === sub) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
+  });
+}
+
+const MOVE_ICONS = {
+  strength: `<svg viewBox="0 0 24 24"><path d="M6.5 6.5v11M17.5 6.5v11M3 9.5v5M21 9.5v5M6.5 12h11"/></svg>`,
+  cardio: `<svg viewBox="0 0 24 24"><path d="M3 12h4l2.5-6 5 12 2.5-6h4"/></svg>`,
+  gentle: `<svg viewBox="0 0 24 24"><path d="M4 15c2.5-4 5.5-4 8 0s5.5 4 8 0"/><path d="M4 9c2.5-4 5.5-4 8 0s5.5 4 8 0"/></svg>`,
+};
+
+function renderMove() {
+  const list = $("#move-list");
+  MOVE_SESSIONS.forEach((m) => {
+    const el = document.createElement("article");
+    el.className = "card session";
+    el.innerHTML = `<div class="card-row"><span class="round-icon" aria-hidden="true">${MOVE_ICONS[m.kind]}</span>
+        <div><h2 class="h3"></h2><p class="muted-line"></p></div><span class="tag tag-soft"></span></div>
+      <p class="session-impact"></p>
+      <p><strong>What it's for:</strong> <span class="for"></span></p>
+      <details><summary>Step-by-step</summary><ol class="howto"></ol></details>
+      <p class="safety-note"><strong>Safety:</strong> <span></span></p>
+      <button type="button" class="btn btn-primary btn-block"></button>`;
+    $("h2", el).textContent = m.name;
+    $(".muted-line", el).textContent = m.equipment;
+    $(".tag", el).textContent = `${m.min} min`;
+    $(".session-impact", el).textContent = `${m.impact} impact`;
+    $(".for", el).textContent = m.forWhat;
+    m.howTo.forEach((t) => { const li = document.createElement("li"); li.textContent = t; $(".howto", el).append(li); });
+    $(".safety-note span", el).textContent = m.safety;
+    const btn = $("button", el);
+    btn.textContent = `Start ${m.min}-minute timer`;
+    btn.addEventListener("click", () => openPlayer({ name: m.name, timed: true, steps: m.steps,
+      safety: "Stop for chest pain, fainting, unusual shortness of breath, or sharp pain.", opener: btn }));
+    list.append(el);
+  });
+}
+
+let feeling = null;
+function renderMind() {
+  const chips = $("#feel-chips");
+  chips.replaceChildren();
+  FEELINGS.forEach((f) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.textContent = f.label; b.setAttribute("aria-pressed", f === feeling);
+    b.addEventListener("click", () => { feeling = f === feeling ? null : f; renderMind(); });
+    chips.append(b);
+  });
+  const shown = feeling ? MIND_PRACTICES.filter((p) => feeling.ids.includes(p.id)) : MIND_PRACTICES;
+  $("#feel-hint").textContent = feeling
+    ? `Try ${shown.map((p) => p.name).join(" or ")}. Tap "${feeling.label}" again to see all practices.`
+    : "Pick one to see practices that may help, or browse them all below.";
+
+  const list = $("#mind-list");
+  list.replaceChildren();
+  shown.forEach((p) => {
+    const el = document.createElement("article");
+    el.className = "card practice";
+    el.innerHTML = `<div class="card-row"><div><h2 class="h3"></h2></div><span class="tag tag-soft"></span></div>
+      <p class="for"></p>
+      <button type="button" class="btn btn-primary btn-block">Start</button>
+      <p class="dont-have-to"></p>
+      <p class="fine"><strong>Evidence:</strong> <span class="ev"></span></p>
+      <div class="${p.pro ? "pro-note" : "safety-note"}">${p.pro ? "<strong>Talk to a professional</strong>" : "<strong>Safety:</strong>"} <span></span></div>`;
+    $("h2", el).textContent = p.name;
+    $(".tag", el).textContent = p.time;
+    $(".for", el).textContent = p.forWhat;
+    $(".dont-have-to", el).textContent = p.dontHave;
+    $(".ev", el).textContent = p.evidence;
+    $("div:last-child span", el).textContent = p.safety;
+    const btn = $("button", el);
+    btn.setAttribute("aria-label", `Start ${p.name}`);
+    btn.addEventListener("click", () => openPlayer({ name: p.name, timed: false,
+      steps: p.steps.map((text) => ({ text })), safety: p.safety, opener: btn }));
+    list.append(el);
+  });
+}
+renderMove();
+renderMind();
+
+// ---------- Step player: a timer for Move, self-paced steps for Mind ----------
+const player = { steps: [], i: 0, timed: false, running: false, endAt: 0, leftMs: 0, ticker: null, lock: null, opener: null };
+const fmtClock = (ms) => { const s = Math.max(0, Math.ceil(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+
+async function keepAwake(on) {   // keep the phone screen on while a timer runs (where supported)
+  try {
+    if (on && !player.lock && "wakeLock" in navigator) player.lock = await navigator.wakeLock.request("screen");
+    if (!on && player.lock) { await player.lock.release(); player.lock = null; }
+  } catch { player.lock = null; }
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && player.running) { player.lock = null; keepAwake(true); }
+});
+
+function openPlayer({ name, timed, steps, safety, opener }) {
+  Object.assign(player, { steps, timed, i: 0, opener, running: false });
+  $("#player-name").textContent = name;
+  $("#player-safety").textContent = safety;
+  $("#player-clock").hidden = !timed;
+  $("#player-pause").hidden = !timed;
+  $("#player-run").hidden = false; $("#player-end").hidden = true;
+  $("#player-close").textContent = "End";
+  $("#player").hidden = false;
+  goToStep(0);
+  if (timed) startTimer();
+  (timed ? $("#player-title") : $("#player-text")).focus();
+}
+
+function goToStep(i) {
+  player.i = i;
+  const st = player.steps[i], n = player.steps.length, last = i === n - 1;
+  $("#player-count").textContent = `Step ${i + 1} of ${n}`;
+  $("#player-title").textContent = player.timed ? st.title : `Step ${i + 1}`;
+  $("#player-title").hidden = !player.timed;
+  $("#player-text").textContent = st.text;
+  const next = player.steps[i + 1];
+  $("#player-next").textContent = player.timed && next ? `Next: ${next.title}` : "";
+  $("#player-back").disabled = i === 0;
+  $("#player-skip").textContent = last ? "Finish" : "Next";
+  $("#player-skip").className = `btn ${player.timed ? "btn-ghost" : "btn-primary"}`;
+  if (player.timed) {
+    player.leftMs = st.sec * 1000;
+    player.endAt = Date.now() + player.leftMs;
+    paintClock();
+  } else {
+    $("#player-bar").style.width = `${((i + 1) / n) * 100}%`;
+  }
+}
+
+function paintClock() {
+  const left = player.running ? player.endAt - Date.now() : player.leftMs;
+  const st = player.steps[player.i];
+  $("#player-clock").textContent = fmtClock(left);
+  const total = player.steps.reduce((a, s) => a + s.sec, 0) * 1000;
+  const done = player.steps.slice(0, player.i).reduce((a, s) => a + s.sec, 0) * 1000 + (st.sec * 1000 - Math.max(0, left));
+  $("#player-bar").style.width = `${(done / total) * 100}%`;
+}
+
+function tick() {
+  // Date-based, so a throttled background tab catches up correctly.
+  while (player.running && Date.now() >= player.endAt) {
+    if (player.i === player.steps.length - 1) { finishPlayer(); return; }
+    const from = player.endAt;
+    goToStep(player.i + 1);
+    player.endAt = from + player.steps[player.i].sec * 1000;
+    if (navigator.vibrate) navigator.vibrate(200);
+  }
+  if (player.running) paintClock();
+}
+
+function startTimer() {
+  player.running = true;
+  player.endAt = Date.now() + player.leftMs;
+  clearInterval(player.ticker);
+  player.ticker = setInterval(tick, 250);
+  $("#player-pause").textContent = "Pause";
+  keepAwake(true);
+}
+function pauseTimer() {
+  player.leftMs = player.endAt - Date.now();
+  player.running = false;
+  clearInterval(player.ticker);
+  $("#player-pause").textContent = "Resume";
+  paintClock();
+  keepAwake(false);
+}
+
+function finishPlayer() {
+  player.running = false;
+  clearInterval(player.ticker);
+  keepAwake(false);
+  $("#player-run").hidden = true; $("#player-end").hidden = false;
+  $("#player-close").textContent = "Close";
+  $("#player-end-title").textContent = player.timed ? "Session complete" : "Practice complete";
+  $("#player-end-text").textContent = player.timed
+    ? "Nice work. Notice how your body feels, and drink some water if you need it."
+    : "Notice how you feel now: different, the same, or somewhere in between. Any of those is fine.";
+  $("#player-tick").hidden = !player.timed || isDone(habitsLog(), todayISO(), "movement");
+  $("#player-end-title").focus();
+}
+
+function closePlayer() {
+  player.running = false;
+  clearInterval(player.ticker);
+  keepAwake(false);
+  $("#player").hidden = true;
+  if (player.opener) player.opener.focus();
+}
+
+$("#player-pause").addEventListener("click", () => (player.running ? pauseTimer() : startTimer()));
+$("#player-skip").addEventListener("click", () => {
+  if (player.i === player.steps.length - 1) { finishPlayer(); return; }
+  goToStep(player.i + 1);
+});
+$("#player-back").addEventListener("click", () => { if (player.i > 0) goToStep(player.i - 1); });
+$("#player-close").addEventListener("click", closePlayer);
+$("#player-tick").addEventListener("click", () => {
+  setHabit(todayISO(), "movement", true);
+  $("#player-tick").hidden = true;
+  toast(`Movement ticked for today. Saved ${where()}.`);
+});
+
 // ---------- 5) Membership interest + 6) consult request (nothing is sent) ----------
 $("#join-btn").addEventListener("click", () => {
   const f = $("#join-form"); f.hidden = false; f.elements.name.focus();
@@ -776,7 +1078,7 @@ $("#signout").addEventListener("click", async () => {
   if (pending.size && !confirm("Some changes haven't synced to your account yet and will be lost. Sign out anyway?")) return;
   await sb.auth.signOut();
   pending.clear();
-  SYNCED.forEach((k) => localStorage.removeItem(k));
+  Object.values(KEYS).forEach((k) => localStorage.removeItem(k));
   showSigninStep("email");
   toast("Signed out. Your data was removed from this device.");
 });
@@ -850,7 +1152,11 @@ function closeInstall() { $("#install-sheet").hidden = true; $("#install-open").
 $("#install-open").addEventListener("click", openInstall);
 $("#install-close").addEventListener("click", closeInstall);
 $("#install-sheet").addEventListener("click", (e) => { if (e.target.id === "install-sheet") closeInstall(); });
-document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("#install-sheet").hidden) closeInstall(); });
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  if (!$("#install-sheet").hidden) closeInstall();
+  if (!$("#player").hidden) closePlayer();
+});
 
 // ---------- Service worker (offline + installable). Needs https or localhost. ----------
 if ("serviceWorker" in navigator && (location.protocol === "https:" || ["localhost", "127.0.0.1"].includes(location.hostname))) {

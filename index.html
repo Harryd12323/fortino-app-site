@@ -49,18 +49,74 @@
       </a>
     </div>
   </header>
+  <p class="signed-in-bar" id="signed-in-bar" hidden>Signed in as <strong id="signed-in-email"></strong></p>
 
   <main id="main" tabindex="-1">
 
     <!-- ================= TODAY (default tab) ================= -->
     <section class="view" data-view="today" aria-labelledby="today-title">
-      <p class="eyebrow" id="today-date"></p>
-      <h1 id="today-title">What to do today</h1>
+      <p class="eyebrow">Today</p>
+      <h1 id="today-title">Hello</h1>   <!-- "Happy Thursday, October 15th", set by renderToday() -->
 
       <a href="#quiz" class="card newcomer" id="newcomer">
         <span><strong>New here?</strong> Take the free 1-minute readiness quiz and see what a plan could look like.</span>
         <span class="chev" aria-hidden="true">›</span>
       </a>
+
+      <!-- Goal: the patient's own words about habits or how they want to feel. Never a weight or weight-loss number
+           (guardrail); the quiz's "how much to lose" answer is deliberately not shown here. -->
+      <div class="card" id="goal-card">
+        <h2 class="h3">Your goal</h2>
+        <div id="goal-show" hidden>
+          <p class="goal-text" id="goal-text"></p>
+          <button type="button" class="link-btn" id="goal-edit">Change goal</button>
+        </div>
+        <form id="goal-form" novalidate>
+          <p class="fine">Pick something about what you want to do or how you want to feel. Your care team looks after
+            the medical side with you.</p>
+          <div class="chips chips-wrap" id="goal-ideas">
+            <button type="button">More energy for the things I love</button><button type="button">Get stronger</button>
+            <button type="button">Move every day</button><button type="button">Sleep better</button>
+            <button type="button">Cook more at home</button>
+          </div>
+          <label class="field">Your goal
+            <input type="text" name="goal" maxlength="100" required>
+          </label>
+          <p class="form-error" role="alert"></p>
+          <button type="submit" class="btn btn-ghost btn-block">Save goal</button>
+        </form>
+      </div>
+
+      <!-- TODO(confirm with Doc): the weekly plan (WEEK_PLAN in app.js, sessions in library.js) is a placeholder. -->
+      <div class="card" id="workout-card">
+        <div class="card-row">
+          <span class="round-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6.5 6.5v11M17.5 6.5v11M3 9.5v5M21 9.5v5M6.5 12h11"/></svg></span>
+          <div>
+            <h2 class="h3">Today's workout</h2>
+            <p class="muted-line" id="workout-title"></p>
+          </div>
+          <span class="tag tag-soft" id="workout-min"></span>
+        </div>
+        <p id="workout-detail"></p>
+        <p class="muted-line"><strong>You'll need:</strong> <span id="workout-equipment"></span></p>
+        <p class="safety-note"><strong>Safety:</strong> <span id="workout-safety"></span></p>
+        <button type="button" class="btn btn-primary btn-block" id="workout-start"></button>
+        <p class="fine workout-more"><a href="#learn/move">Or pick a different session in Learn → Move</a></p>
+        <form id="workout-time-form" class="time-row" novalidate>
+          <label class="field">What time will you work out?
+            <input type="time" name="time" required>
+          </label>
+          <button type="submit" class="btn btn-ghost">Save</button>
+        </form>
+        <p class="form-error" id="workout-time-error" role="alert"></p>
+        <div id="workout-time-show" hidden>
+          <p class="done-line" id="workout-time-text"></p>
+          <button type="button" class="link-btn" id="workout-time-edit">Change time</button>
+        </div>
+        <button type="button" class="btn btn-ghost btn-block" id="workout-done" aria-pressed="false"></button>
+        <p class="fine">Go at your own pace and check with your care team before starting or changing exercise. Stop if
+          you feel dizzy, faint or short of breath. Chest pain: call 911.</p>
+      </div>
 
       <!--
         TODO(auth) + TODO(HIPAA): the dose schedule must come from the patient's record (set by their physician),
@@ -399,13 +455,22 @@
       </div>
 
       <div class="card">
-        <h2 class="h3">Contact the office</h2>
-        <!-- TODO(confirm): phone, address and hours come from the practice. Don't copy them from old drafts. -->
+        <h2 class="h3">Contact our offices</h2>
+        <!--
+          TODO(confirm): addresses and phone numbers below come from PUBLIC LISTINGS, not from the practice.
+          Placeholders until the practice confirms them; hours too.
+        -->
+        <h3 class="office-name">Blackwood, NJ office</h3>
         <ul class="contact-rows">
-          <li><span>Phone</span><em>To be added</em></li>
-          <li><span>Blackwood, NJ office</span><em>Address to be added</em></li>
-          <li><span>Philadelphia, PA office</span><em>Address to be added</em></li>
-          <li><span>Hours</span><em>To be added</em></li>
+          <li><span>Address</span><p>129 Johnson Road, Suite A3<br>Blackwood, NJ 08012</p></li>
+          <li><span>Phone</span><a href="tel:+18563184100">856-318-4100</a></li>
+          <li><span>Hours</span><em>Hours to be confirmed</em></li>
+        </ul>
+        <h3 class="office-name">Philadelphia, PA office</h3>
+        <ul class="contact-rows">
+          <li><span>Address</span><em>Address to be confirmed</em></li>
+          <li><span>Phone</span><a href="tel:+12153368000">215-336-8000</a></li>
+          <li><span>Hours</span><em>Hours to be confirmed</em></li>
         </ul>
         <p class="fine">For an emergency, call 911.</p>
       </div>
@@ -478,10 +543,62 @@
     <!-- ================= LEARN (guides; content lives in app.js GUIDES) ================= -->
     <section class="view" data-view="learn" aria-labelledby="learn-title">
       <h1 id="learn-title" class="h2">Learn</h1>
-      <p class="lede">Plain-English guides on what research and clinical guidance say. Your physician's advice for
-        you always comes first.</p>
-      <div class="chips chips-scroll" id="guide-filters" role="group" aria-label="Filter guides"></div>
-      <div id="guide-list"></div>
+      <nav class="subtabs" aria-label="Learn sections">
+        <a href="#learn" data-sub="articles">Articles</a><a href="#learn/move" data-sub="move">Move</a><a href="#learn/mind" data-sub="mind">Mind</a>
+      </nav>
+
+      <div data-panel="articles">
+        <p class="lede">Plain-English guides on what research and clinical guidance say. Your physician's advice for
+          you always comes first.</p>
+        <div class="chips chips-scroll" id="guide-filters" role="group" aria-label="Filter guides"></div>
+        <div id="guide-list"></div>
+      </div>
+
+      <!-- TODO(confirm): Move and Mind content (library.js) needs clinical review by Dr. Fortino before launch. -->
+      <div data-panel="move" hidden>
+        <div class="notice notice-urgent" role="note">
+          <p><strong>Stop and contact your care team</strong> if you get chest pain, fainting, unusual shortness of
+            breath, or severe or persistent belly pain. If you take insulin or a sulfonylurea, ask your care team before
+            starting. In an emergency, call <a href="tel:911">911</a>.</p>
+        </div>
+        <p class="draft-flag">Draft · awaiting review by Dr. Fortino</p>
+        <p class="lede">Short sessions you can do at home. Start easy, build up gradually, and pick what suits how you
+          feel today. Your care team's advice for you comes first.</p>
+        <div class="card talk-test">
+          <h2 class="h3">How hard should it feel? The talk test</h2>
+          <dl>
+            <div><dt>Easy</dt><dd>You can chat comfortably.</dd></div>
+            <div><dt>Moderate</dt><dd>You're breathing faster but can still speak in sentences. You can talk, but not
+              sing.</dd></div>
+            <div><dt>Too hard for now</dt><dd>You can only say a few words, your form is slipping, or you feel unwell.
+              Slow down or stop.</dd></div>
+          </dl>
+          <p class="fine">Aim for easy to moderate. You don't need to push to exhaustion or until you can't do another.</p>
+        </div>
+        <div id="move-list"></div>
+        <p class="disclaimer">General information, not medical advice. These sessions are built from published exercise
+          guidance but haven't been tested as exact programs. Your physician decides what's right for you.</p>
+      </div>
+
+      <div data-panel="mind" hidden>
+        <div class="notice" role="note">
+          <p>These practices support general wellness. They are not mental health treatment and are not a substitute
+            for medical or psychological care. Stop a practice if it repeatedly makes you feel worse. Talk with your
+            care team or a mental health professional if you are experiencing severe or persistent depression, panic,
+            trauma symptoms, disordered eating, or other significant mental health symptoms.</p>
+          <p><strong>If you're having thoughts of suicide, call or text <a href="tel:988">988</a>. In an emergency,
+            call <a href="tel:911">911</a>.</strong></p>
+        </div>
+        <p class="draft-flag">Draft · awaiting review by Dr. Fortino</p>
+        <p class="lede">Short practices for stress, eating awareness, sleep and motivation. They support your care plan;
+          they aren't a weight-loss treatment or mental health treatment.</p>
+        <div class="card">
+          <h2 class="h3" id="feel-title">How are you feeling?</h2>
+          <div class="chips chips-wrap" id="feel-chips" role="group" aria-labelledby="feel-title"></div>
+          <p class="fine" id="feel-hint" role="status"></p>
+        </div>
+        <div id="mind-list"></div>
+      </div>
     </section>
 
     <section class="view" data-view="article" aria-live="polite">
@@ -560,6 +677,34 @@
     </div>
   </div>
 
+  <!-- Step-by-step player: timed for Move sessions, self-paced for Mind practices -->
+  <div class="sheet-backdrop" id="player" hidden>
+    <div class="sheet player" role="dialog" aria-modal="true" aria-labelledby="player-name">
+      <div class="sheet-grip" aria-hidden="true"></div>
+      <p class="eyebrow" id="player-name"></p>
+      <div id="player-run">
+        <p class="player-count" id="player-count"></p>
+        <h2 class="h3" id="player-title" tabindex="-1"></h2>
+        <p class="player-clock" id="player-clock" aria-hidden="true"></p>
+        <div class="progressbar" aria-hidden="true"><span id="player-bar"></span></div>
+        <p class="player-text" id="player-text" aria-live="polite" tabindex="-1"></p>
+        <p class="fine" id="player-next"></p>
+        <div class="player-controls">
+          <button type="button" class="btn btn-ghost" id="player-back">Back</button>
+          <button type="button" class="btn btn-primary" id="player-pause">Pause</button>
+          <button type="button" class="btn btn-ghost" id="player-skip">Next</button>
+        </div>
+      </div>
+      <div id="player-end" hidden>
+        <h2 class="h3" id="player-end-title" tabindex="-1"></h2>
+        <p id="player-end-text"></p>
+        <button type="button" class="btn btn-primary btn-block" id="player-tick" hidden>Tick Movement for today</button>
+      </div>
+      <p class="fine player-safety" id="player-safety"></p>
+      <button type="button" class="btn btn-ghost btn-block" id="player-close">End</button>
+    </div>
+  </div>
+
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <nav class="tabbar" aria-label="Main">
@@ -572,6 +717,7 @@
 
   <script src="vendor/supabase.js"></script>   <!-- @supabase/supabase-js 2.117.2, UMD build, vendored -->
   <script src="supabase-config.js"></script>
+  <script src="library.js"></script>   <!-- Move and Mind content; TODO(confirm) clinical review -->
   <script src="app.js"></script>
 </body>
 </html>

@@ -434,6 +434,15 @@ main {
 .chips-scroll::-webkit-scrollbar { display: none; }
 .chips-scroll button { flex: none; white-space: nowrap; }
 .done-line { font-weight: 650; color: var(--primary-dark); margin-bottom: .25rem; }
+.goal-text { font-family: var(--serif); font-size: 1.25rem; color: var(--primary-dark); margin: 0 0 .25rem; overflow-wrap: anywhere; }
+.time-row { display: flex; align-items: flex-end; gap: .6rem; }
+.time-row .field { flex: 1; margin-bottom: 0; }
+.time-row .btn { flex: none; }
+#workout-time-error:not(:empty) { margin: .5rem 0 0; }
+#workout-done { margin-top: 1rem; }
+.workout-more { text-align: center; margin: .5rem 0 1rem; }
+.workout-more a { color: var(--primary); font-weight: 600; }
+#workout-card .muted-line { margin-top: .5rem; }
 .tip-card { display: flex; gap: .9rem; align-items: center; padding: .75rem; color: var(--ink); text-decoration: none; }
 .tip-card img { width: 96px; height: 72px; object-fit: cover; border-radius: 10px; flex: none; }
 .tip-text small { display: block; font-size: .72rem; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: var(--cyan-text); }
@@ -476,6 +485,12 @@ main {
 .contact-rows li { display: flex; gap: 1rem; min-height: 44px; align-items: center; border-top: 1px solid var(--line); }
 .contact-rows span { width: 4.5rem; flex: none; font-size: .8rem; font-weight: 650; color: var(--muted); }
 .contact-rows em { font-style: normal; color: var(--muted); }
+.contact-rows p { margin: .5rem 0; }
+.contact-rows a { color: var(--primary); font-weight: 600; min-height: 44px; display: flex; align-items: center; }
+.office-name { font-size: .95rem; margin: 1rem 0 .25rem; }
+.signed-in-bar { margin: 0; padding: .4rem 1.1rem; font-size: .8rem; color: var(--muted); background: var(--tint);
+  border-bottom: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.signed-in-bar strong { color: var(--ink); font-weight: 600; }
 
 /* Learn */
 #guide-list .section-title:first-child { margin-top: .5rem; }
@@ -485,3 +500,44 @@ main {
 .sources li { margin-bottom: .5rem; }
 .sources a { color: var(--cyan-text); overflow-wrap: anywhere; }
 .article .callout p:last-child { margin-bottom: 0; }
+
+/* ---------- Learn sub-tabs: Articles · Move · Mind ---------- */
+.subtabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: .25rem; padding: .25rem; margin: .75rem 0 1.25rem;
+  background: var(--tint-2); border-radius: 12px; }
+.subtabs a { display: grid; place-items: center; min-height: 44px; border-radius: 9px; font-weight: 600; font-size: .95rem;
+  color: var(--primary-dark); text-decoration: none; }
+.subtabs a[aria-current="page"] { background: var(--surface); box-shadow: var(--shadow); color: var(--primary); }
+.notice { background: var(--tint); border-left: 4px solid var(--cyan); border-radius: 0 12px 12px 0; padding: .8rem 1rem;
+  margin: 0 0 1rem; font-size: .9rem; }
+.notice p { margin: 0; }
+.notice p + p { margin-top: .6rem; }
+.notice-urgent { background: #fdf3f1; border-left-color: var(--error); }
+.notice a { color: inherit; font-weight: 700; }
+.talk-test dl { margin: .5rem 0 .75rem; }
+.talk-test dl div { display: grid; grid-template-columns: 7.5rem 1fr; gap: .75rem; padding: .5rem 0; border-top: 1px solid var(--line); }
+.talk-test dt { font-weight: 650; color: var(--primary-dark); }
+.talk-test dd { margin: 0; }
+.session .muted-line { overflow-wrap: anywhere; }
+.session-impact { margin: 0 0 .75rem; font-size: .8rem; font-weight: 650; color: var(--cyan-text); text-transform: uppercase; letter-spacing: .05em; }
+.session details { margin: .75rem 0; }
+.session summary { min-height: 44px; display: flex; align-items: center; font-weight: 600; color: var(--primary); cursor: pointer; }
+.session .howto { margin: .25rem 0 .5rem; }
+.safety-note { margin: .75rem 0 0; font-size: .88rem; color: var(--muted); }
+.safety-note strong { color: var(--ink); }
+.pro-note { margin: .75rem 0 0; padding: .75rem .9rem; font-size: .88rem; background: #fdf3f1; border-left: 4px solid var(--error);
+  border-radius: 0 10px 10px 0; }
+.pro-note strong { display: block; color: var(--error); margin-bottom: .2rem; }
+.practice .for { margin: 0 0 .25rem; }
+.dont-have-to { margin: .75rem 0 .5rem; font-family: var(--serif); font-style: italic; color: var(--primary-dark); }
+#feel-chips { margin-bottom: .5rem; }
+.player { text-align: center; }
+.player-count { margin: 0; font-size: .8rem; color: var(--muted); }
+.player-clock { margin: .25rem 0 0; font: 600 3.25rem/1.1 var(--font); font-variant-numeric: tabular-nums; color: var(--primary-dark); }
+.player-text { min-height: 4.5em; margin: 1rem 0 .5rem; font-size: 1.1rem; line-height: 1.5; }
+.player-text:focus { outline: none; }
+.player-controls { display: flex; gap: .5rem; margin-top: 1rem; }
+.player-controls .btn { flex: 1; }
+.player-controls .btn { padding-left: .5rem; padding-right: .5rem; }
+.player-controls .btn:disabled { opacity: .4; cursor: default; }
+.player-safety { margin-top: 1rem; }
+#player-title:focus, #player-end-title:focus { outline: none; }
