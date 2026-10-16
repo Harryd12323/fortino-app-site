@@ -5,10 +5,13 @@
 // "TODO(payments)" below (and in index.html) must be done, and every "TODO(confirm)" / "TODO(confirm with Doc)"
 // approved by the practice.
 //
-// TODO(auth): there is no login. Real patient accounts need a HIPAA-eligible identity provider (signed BAA),
-// MFA option, secure httpOnly session cookies (never tokens in localStorage), automatic sign-out on shared
-// devices, and server-side checks on every request. Habits, check-ins and the dose schedule would then sync to
-// that account instead of living only in localStorage. Do not build auth inside this prototype.
+// TODO(auth): TEST BUILD ONLY. "Account & sync" below signs people in with Supabase (6-digit email code) and syncs
+// habits, check-ins, waist entries and wins to the user_data table (supabase/schema.sql, Row Level Security).
+// That project has NO BAA, so it may hold made-up data only. Before real patients use it:
+//   - Supabase HIPAA add-on + signed BAA (Team plan or above), and a BAA-covered host (GitHub Pages isn't);
+//   - session tokens: supabase-js keeps them in localStorage. A static site can't use httpOnly cookies, so this
+//     needs a server or edge function in front, or an explicit risk decision;
+//   - MFA option, idle timeout / sign-out on shared devices, audit logging, and the practice's privacy notice.
 //
 // Guardrails (see index.html): no weight tracking or weight-loss numbers, no dose advice, no brand "same as" or
 // compounded claims, no before/after or needle imagery, guides report rather than prescribe.
@@ -39,16 +42,106 @@ function toast(msg, ms = 3500) {
 }
 
 // ---------- Dates and on-device storage ----------
-// TODO(HIPAA): all of this is unencrypted localStorage on this device only. See TODO(auth) above.
+// TODO(HIPAA): all of this is unencrypted localStorage (plus the test-account sync below). See TODO(auth) above.
 const iso = (d) => { const x = new Date(d); x.setMinutes(x.getMinutes() - x.getTimezoneOffset()); return x.toISOString().slice(0, 10); };
 const todayISO = () => iso(new Date());
 const daysAgoISO = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return iso(d); };
 const fmtDate = (s, opts = { month: "short", day: "numeric", year: "numeric" }) =>
   new Date(s + "T12:00:00").toLocaleDateString(undefined, opts);
 const load = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } };
-const save = (key, value) => localStorage.setItem(key, JSON.stringify(value));
+const save = (key, value) => { localStorage.setItem(key, JSON.stringify(value)); queuePush(key); };
 const KEYS = { habits: "fortino.habits", checkins: "fortino.checkins", waist: "fortino.waist", wins: "fortino.wins",
                oldWeights: "fortino.weights" };   // oldWeights: left by the earlier version; only ever deleted
+
+// ---------- Account & sync (TEST BUILD, see TODO(auth) above) ----------
+// localStorage stays the working copy, so the app works offline. When signed in, every save() is also upserted to
+// Supabase (one row per key). On sign-in, account data is merged with whatever is on this device.
+// Signing out removes the synced data from this device.
+const SYNCED = [KEYS.habits, KEYS.checkins, KEYS.waist, KEYS.wins];
+const SB = window.SUPABASE_CONFIG || {};
+const sb = window.supabase && SB.url && !SB.url.includes("YOUR-PROJECT-REF")
+  ? window.supabase.createClient(SB.url, SB.publishableKey, { auth: { flowType: "pkce", detectSessionInUrl: false } })
+  : null;
+let user = null;
+const pending = new Set();
+let pushTimer;
+const where = () => (user ? "to your account" : "on this device");
+
+function queuePush(key) {
+  if (!user || !SYNCED.includes(key)) return;
+  pending.add(key);
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(pushPending, 500);
+}
+async function pushPending() {
+  if (!user || !pending.size) return;
+  const rows = [...pending].map((key) => ({ user_id: user.id, key, value: load(key, null) })).filter((r) => r.value !== null);
+  pending.clear();
+  const { error } = rows.length ? await sb.from("user_data").upsert(rows) : {};
+  if (error) { rows.forEach((r) => pending.add(r.key)); console.warn("Sync failed", error); }
+  renderAccount();
+}
+window.addEventListener("online", pushPending);
+
+// Habits and check-ins are keyed by day (the account's copy wins for the same day); waist entries and wins are
+// lists with ids (union, nothing dropped).
+const merge = (local, remote) => Array.isArray(remote)
+  ? [...remote, ...(local || []).filter((x) => !remote.some((y) => y.id === x.id))]
+  : { ...local, ...remote };
+
+async function pullAll() {
+  const { data, error } = await sb.from("user_data").select("key, value");
+  if (error) { console.warn("Sync failed", error); toast("Couldn't load your account data. Check your connection."); return; }
+  const remote = Object.fromEntries(data.map((r) => [r.key, r.value]));
+  SYNCED.forEach((key) => {
+    const local = load(key, null);
+    if (local === null && !(key in remote)) return;
+    const value = local === null ? remote[key] : key in remote ? merge(local, remote[key]) : local;
+    localStorage.setItem(key, JSON.stringify(value));
+    if (JSON.stringify(value) !== JSON.stringify(remote[key])) pending.add(key);
+  });
+  await pushPending();
+  route();
+}
+
+function renderAccount() {
+  if (!sb) return;
+  $("#account").hidden = false;
+  $("#account-out").hidden = Boolean(user);
+  $("#account-in").hidden = !user;
+  $(".preview-pill").title = user ? "Test account: use made-up information only" : "Nothing is sent or stored on a server yet";
+  if (!user) return;
+  $("#account-email").textContent = user.email;
+  $("#sync-status").textContent = pending.size
+    ? "Some changes haven't synced yet. They'll sync when you're back online."
+    : "Your habits, check-ins, waist entries and wins are synced.";
+}
+
+if (sb) {
+  // The sign-in email's link (desktop testing until custom SMTP lets the email show the 6-digit code) comes back as
+  // ?code=… and only works in the browser that asked for it. A failed link reports ?error_description=… or the same
+  // in the hash. Clear these from the address bar before the hash router runs, then finish signing in.
+  const q = new URLSearchParams(location.search), h = new URLSearchParams(location.hash.slice(1));
+  const code = q.get("code"), linkError = q.get("error_description") || h.get("error_description");
+  if (code || linkError) history.replaceState(null, "", location.pathname + (h.has("error_description") ? "" : location.hash));
+  if (linkError) toast(`That sign-in link didn't work: ${linkError}. Please ask for a new one under More.`, 7000);
+  else if (code) sb.auth.exchangeCodeForSession(code).then(({ error }) => {
+    if (error) toast("That sign-in link didn't work. Open it in the same browser where you asked for it, or ask for a new one under More.", 8000);
+  });
+  sb.auth.onAuthStateChange((event, session) => {
+    const prev = user;
+    user = session ? session.user : null;
+    // Supabase advises against awaiting its own calls inside this callback, so the work runs just after it.
+    setTimeout(() => {
+      if (user && (!prev || prev.id !== user.id)) {
+        if (event === "SIGNED_IN") toast("Signed in.");
+        pullAll();
+      }
+      renderAccount();
+    });
+  });
+  renderAccount();
+}
 
 // ---------- Router ----------
 // #today (default) #progress #plan #care #care/book #learn #learn/<slug> #quiz #more #privacy
@@ -145,7 +238,7 @@ function renderToday() {
   const tip = $("#tip-card");
   tip.href = `#learn/${g.slug}`;
   tip.innerHTML = `<img alt="" width="800" height="450" loading="lazy"><span class="tip-text"><small>Today's read</small><strong></strong><span></span></span>`;
-  $("img", tip).src = g.img; $("strong", tip).textContent = g.title; $(".tip-text > span", tip).textContent = g.summary;
+  $("img", tip).src = g.img; $("img", tip).style.objectPosition = g.pos || ""; $("strong", tip).textContent = g.title; $(".tip-text > span", tip).textContent = g.summary;
 }
 
 const checkinForm = $("#checkin-form");
@@ -161,7 +254,7 @@ checkinForm.addEventListener("submit", (e) => {
   const all = load(KEYS.checkins, {});
   all[todayISO()] = { energy: answer("energy"), hunger: answer("hunger"), stomach: answer("stomach") };
   save(KEYS.checkins, all);
-  toast("Check-in saved on this device.");
+  toast(`Check-in saved ${where()}.`);
   renderToday();
 });
 $("#checkin-edit").addEventListener("click", () => {
@@ -186,14 +279,16 @@ function renderProgress() {
     $("h2", card).textContent = h.label;
     $(".streak-num b", card).textContent = currentStreak(log, h.id);
     const best = bestStreak(log, h.id);
-    $(".streak-best", card).textContent = best ? `Best streak: ${best} day${best === 1 ? "" : "s"}` : "Tick a day to start a streak.";
+    $(".streak-best", card).textContent = best ? `Best streak: ${best} day${best === 1 ? "" : "s"}` : "Pick a day to start a streak.";
     const row = $(".week-row", card);
-    row.setAttribute("aria-label", `${h.label}, last 7 days`);
-    for (let i = 6; i >= 0; i--) {
-      const day = daysAgoISO(i), done = isDone(log, day, h.id);
+    row.setAttribute("aria-label", `${h.label}, this week`);
+    // This week, Sunday to Saturday. i counts days back from today; days later this week (i < 0) can't be ticked yet.
+    const sinceSunday = new Date().getDay();
+    for (let i = sinceSunday; i > sinceSunday - 7; i--) {
+      const day = daysAgoISO(i), done = isDone(log, day, h.id), future = i < 0;
       const b = document.createElement("button");
-      b.type = "button"; b.className = "day"; b.setAttribute("aria-pressed", done);
-      b.setAttribute("aria-label", `${h.label}, ${fmtDate(day, { weekday: "long", month: "short", day: "numeric" })}: ${done ? "done" : "not done"}`);
+      b.type = "button"; b.className = "day"; b.setAttribute("aria-pressed", done); b.disabled = future;
+      b.setAttribute("aria-label", `${h.label}, ${fmtDate(day, { weekday: "long", month: "short", day: "numeric" })}: ${future ? "upcoming" : done ? "done" : "not done"}`);
       b.innerHTML = `<small></small><span>${done ? "✓" : ""}</span>`;
       $("small", b).textContent = i === 0 ? "Today" : fmtDate(day, { weekday: "narrow" });
       b.addEventListener("click", () => { setHabit(day, h.id, !done); renderProgress(); });
@@ -237,7 +332,7 @@ waistForm.addEventListener("submit", (e) => {
   err.textContent = "";
   save(KEYS.waist, [...load(KEYS.waist, []), { id: Date.now(), date, inches: v }]);
   waistForm.elements.waist.value = "";
-  toast("Saved on this device.");
+  toast(`Saved ${where()}.`);
   renderProgress();
 });
 
@@ -252,14 +347,21 @@ winForm.addEventListener("submit", (e) => {
   $(".form-error", winForm).textContent = "";
   save(KEYS.wins, [...load(KEYS.wins, []), { id: Date.now(), date: todayISO(), text: text.slice(0, 140) }]);
   winForm.reset();
-  toast("Nice. Win saved on this device.");
+  toast(`Nice. Win saved ${where()}.`);
   renderProgress();
 });
 
-$("#clear-all").addEventListener("click", () => {
-  if (!confirm("Delete everything this app saved on this device (habits, check-ins, waist entries, wins)? This can't be undone.")) return;
+$("#clear-all").addEventListener("click", async () => {
+  const scope = user ? "on this device and in your account" : "on this device";
+  if (!confirm(`Delete everything this app saved ${scope} (habits, check-ins, waist entries, wins)? This can't be undone.`)) return;
+  if (user) {
+    const { error } = await sb.from("user_data").delete().eq("user_id", user.id);
+    if (error) { toast("Couldn't delete your account data. Check your connection and try again."); return; }
+    pending.clear();
+  }
   Object.values(KEYS).forEach((k) => localStorage.removeItem(k));
-  toast("Deleted from this device.");
+  toast(`Deleted ${scope}.`);
+  renderAccount();
 });
 
 // ---------- 2) Readiness quiz ----------
@@ -386,7 +488,7 @@ const GUIDES = [
   { slug: "week-by-week", category: "Getting started", minutes: 4,
     title: "Your first months on a GLP-1: what to expect",
     summary: "What the early weeks often look like, based on how these programs are usually run.",
-    img: "images/article-walking.jpg", alt: "A woman smiling as she walks down a leafy city street",
+    img: "images/article-walking.jpg", alt: "A woman smiling as she walks down a leafy city street", pos: "center top",
     sources: [SRC.label, SRC.advisory],
     body: `<p>Everyone's experience is different, and your physician sets the pace of your plan. This is a general
       picture of how the first months often go, drawn from the medicines' prescribing information and published
@@ -443,7 +545,7 @@ const GUIDES = [
   { slug: "grocery-list", category: "Nutrition", minutes: 3,
     title: "High-protein grocery list",
     summary: "Foods that fit the protein, fiber and fluid priorities in recent nutrition guidance.",
-    img: "images/article-produce.jpg", alt: "Fresh broccoli and lettuce at a market",
+    img: "images/article-protein.jpg", alt: "A carton of brown and pale blue eggs on a wooden counter",
     sources: [SRC.advisory],
     // TODO(confirm with Doc): the list and the "building a plate" order are suggestions to approve.
     body: `<p>The 2025 joint advisory on nutrition with GLP-1 therapy emphasizes enough protein (to help preserve
@@ -540,7 +642,7 @@ const GUIDES = [
   { slug: "first-consult", category: "Your visit", minutes: 2,
     title: "What to expect at your first consult",
     summary: "How to prepare, and what you'll talk about with Dr. Fortino's team.",
-    img: "images/article-consult.jpg", alt: "A smiling woman outside a bright office building",
+    img: "images/article-consult.jpg", alt: "A smiling woman outside a bright office building", pos: "center top",
     sources: [],
     body: `<p>Your first consult is a conversation, with no obligation.</p>
       <h2>What to bring</h2>
@@ -570,7 +672,7 @@ function renderGuideList() {
     GUIDES.filter((g) => g.category === c).forEach((g) => {
       const li = document.createElement("li");
       li.innerHTML = `<a href="#learn/${g.slug}"><img loading="lazy" width="800" height="450" alt=""><small></small><strong></strong><span></span></a>`;
-      $("img", li).src = g.img;
+      $("img", li).src = g.img; $("img", li).style.objectPosition = g.pos || "";   // pos: keep faces in the crop
       $("small", li).textContent = `${g.minutes} min read${g.reviewed ? "" : " · Draft"}`;
       $("strong", li).textContent = g.title; $("span", li).textContent = g.summary;
       ul.append(li);
@@ -587,7 +689,7 @@ function renderArticle(slug) {
   $("#article-body").innerHTML = `<img class="article-photo" width="800" height="450"><p class="eyebrow"></p><h1></h1>
     ${g.reviewed ? "" : '<p class="draft-flag">Draft · awaiting review by Dr. Fortino</p>'}
     ${g.body}${sources}${NOT_ADVICE}<a href="#care/book" class="btn btn-primary btn-block">Request a free consult</a>`;
-  const img = $("#article-body .article-photo"); img.src = g.img; img.alt = g.alt;
+  const img = $("#article-body .article-photo"); img.src = g.img; img.alt = g.alt; img.style.objectPosition = g.pos || "";
   $("#article-body .eyebrow").textContent = `${g.category} · ${g.minutes} min read`;
   $("#article-body h1").textContent = g.title;
   $$("#article-body .sources a").forEach((a, i) => { a.href = g.sources[i].url; a.textContent = g.sources[i].label; });
@@ -607,10 +709,12 @@ function wireForm(form, onDone) {
     let msg = "";
     $$("input[required]", form).forEach((inp) => {
       const v = inp.value.trim();
-      const bad = !v || (inp.type === "email" && !EMAIL_RE.test(v)) || (inp.type === "tel" && v.replace(/\D/g, "").length < 10);
+      const bad = !v || (inp.type === "email" && !EMAIL_RE.test(v)) || (inp.type === "tel" && v.replace(/\D/g, "").length < 10)
+        || (inp.type === "date" && (v < inp.min || v > todayISO()));
       inp.classList.toggle("invalid", bad);
       if (bad && !msg) msg = inp.type === "email" ? "Please enter a valid email address."
-        : inp.type === "tel" ? "Please enter a phone number with area code." : "Please fill in every field.";
+        : inp.type === "tel" ? "Please enter a phone number with area code."
+        : inp.type === "date" && v ? "Please enter a valid date of birth." : "Please fill in every field.";
     });
     err.textContent = msg;
     if (msg) return;
@@ -623,7 +727,66 @@ wireForm($("#join-form"), (f) => {
   toast("Thanks! This is a preview, so nothing was sent yet.", 5000);
   f.hidden = true;
 });
-wireForm($("#book-form"), () => {
+// Sign-in by 6-digit email code: a link opens Safari, not the installed iPhone app, so the code is the main path.
+// It needs custom SMTP so the Supabase "Magic Link" email template can show {{ .Token }}. Until then the default
+// email only has a link, which works for desktop testing (handled above, under "if (sb)").
+const codeForm = $("#code-form");
+let signinEmail = "";
+function showSigninStep(step) {
+  $("#signin-form").hidden = step !== "email";
+  codeForm.hidden = step !== "code";
+  $$(".form-error", $("#account-out")).forEach((e) => { e.textContent = ""; });
+  if (step === "code") codeForm.elements.code.focus();
+}
+wireForm($("#signin-form"), (f) => {
+  const email = f.elements.email.value.trim(), btn = $("button", f);
+  btn.disabled = true;
+  sb.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin + location.pathname } }).then(({ error }) => {
+    btn.disabled = false;
+    if (error) { $(".form-error", f).textContent = error.status === 429
+      ? "Too many sign-in emails. Please wait a minute and try again." : "Couldn't send the code. Please try again."; return; }
+    signinEmail = email;
+    $("#code-sent").textContent = `We emailed ${email}. Enter the 6-digit code below, or open the sign-in link in the email in this browser.`;
+    codeForm.reset();
+    showSigninStep("code");
+  });
+});
+codeForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const input = codeForm.elements.code, code = input.value.replace(/\D/g, ""), err = $(".form-error", codeForm);
+  const btn = $("button[type=submit]", codeForm);
+  input.classList.toggle("invalid", code.length !== 6);
+  if (code.length !== 6) { err.textContent = "Please enter the 6-digit code from the email."; return; }
+  err.textContent = "";
+  btn.disabled = true;
+  const { error } = await sb.auth.verifyOtp({ email: signinEmail, token: code, type: "email" });
+  btn.disabled = false;
+  if (error) {
+    input.classList.add("invalid");
+    err.textContent = error.status === 429 ? "Too many tries. Please wait a minute and try again."
+      : "That code didn't work. It may have expired, so check it or get a new one.";
+    return;
+  }
+  codeForm.reset();
+  showSigninStep("email");
+});
+$("#code-back").addEventListener("click", () => showSigninStep("email"));
+$("#signout").addEventListener("click", async () => {
+  await pushPending();
+  if (pending.size && !confirm("Some changes haven't synced to your account yet and will be lost. Sign out anyway?")) return;
+  await sb.auth.signOut();
+  pending.clear();
+  SYNCED.forEach((k) => localStorage.removeItem(k));
+  showSigninStep("email");
+  toast("Signed out. Your data was removed from this device.");
+});
+// Office choice only matters for in-person consults.
+const bookForm = $("#book-form");
+bookForm.elements.dob.max = todayISO();
+const syncOffice = () => { $("#book-office").hidden = bookForm.elements.mode.value !== "In person"; };
+bookForm.addEventListener("change", syncOffice);
+bookForm.addEventListener("reset", () => setTimeout(syncOffice));
+wireForm(bookForm, () => {
   // TODO(HIPAA): send to a HIPAA-compliant scheduling system (BAA) here, or link to the practice's booking tool.
   toast("Preview only: your request wasn't sent. Please contact the practice directly to book.", 6000);
 });

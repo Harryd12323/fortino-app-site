@@ -19,7 +19,10 @@
 </head>
 <body>
   <!--
-    PREVIEW / PROTOTYPE. Nothing in this app is sent to a server:
+    PREVIEW / PROTOTYPE. Nothing in this app is sent to a server, except:
+      - TEST BUILD: a user who signs in (More → Your account) has habits, check-ins, waist entries and wins synced
+        to a Supabase test project that has NO BAA. Made-up data only; see TODO(auth) in app.js.
+    Otherwise:
       - quiz answers, name and email stay in this browser tab and are dropped when it closes
       - habits, check-ins, waist entries and non-scale wins are saved only on this device (localStorage)
       - the membership and consult forms say plainly that nothing was sent
@@ -283,7 +286,7 @@
           <li><span class="why-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/></svg></span>
             <span><strong>Personalized GLP-1 plans</strong><small>Built around your health and goals, when medically appropriate.</small></span></li>
           <li><span class="why-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 21s-7-6.1-7-11.5a7 7 0 0 1 14 0C19 14.9 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg></span>
-            <span><strong>Local South Jersey care</strong><small>Real visits, close to home.</small></span></li>
+            <span><strong>Offices in Blackwood &amp; Philadelphia</strong><small>Real visits, close to home.</small></span></li>
           <li><span class="why-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg></span>
             <span><strong>Ongoing support</strong><small>Regular check-ins and a team in your corner.</small></span></li>
         </ul>
@@ -400,7 +403,8 @@
         <!-- TODO(confirm): phone, address and hours come from the practice. Don't copy them from old drafts. -->
         <ul class="contact-rows">
           <li><span>Phone</span><em>To be added</em></li>
-          <li><span>Offices</span><em>Philadelphia &amp; South Jersey; details to be added</em></li>
+          <li><span>Blackwood, NJ office</span><em>Address to be added</em></li>
+          <li><span>Philadelphia, PA office</span><em>Address to be added</em></li>
           <li><span>Hours</span><em>To be added</em></li>
         </ul>
         <p class="fine">For an emergency, call 911.</p>
@@ -424,6 +428,7 @@
           TODO(HIPAA): this request contains contact details tied to a medical service. Send it only to a
           HIPAA-compliant scheduling system or backend (BAA), over HTTPS, and confirm by phone/secure message rather than
           plain email. Better still: replace this form with the practice's real booking system.
+          Date of birth plus a request for care is PHI: TEST DATA ONLY until then. (Today nothing is sent or saved.)
         -->
         <label class="field">Full name
           <input type="text" name="name" autocomplete="name" required>
@@ -433,6 +438,9 @@
         </label>
         <label class="field">Phone
           <input type="tel" name="phone" autocomplete="tel" inputmode="tel" required>
+        </label>
+        <label class="field">Date of birth
+          <input type="date" name="dob" autocomplete="bday" min="1900-01-01" required>
         </label>
         <div class="row">
           <label class="field">Preferred day
@@ -454,6 +462,11 @@
             <label><input type="radio" name="mode" value="Video"><span>Video</span></label>
           </div>
         </fieldset>
+        <label class="field" id="book-office">Office
+          <select name="office">
+            <option>Either office</option><option>Blackwood, NJ</option><option>Philadelphia, PA</option>
+          </select>
+        </label>
         <p class="fine">Please don't include medical details here; the care team will go over them with you privately.</p>
         <p class="form-error" role="alert"></p>
         <button type="submit" class="btn btn-primary btn-block">Request consult</button>
@@ -484,7 +497,36 @@
         <li><a href="#quiz"><span class="mi" aria-hidden="true">✓</span>Readiness quiz</a></li>
         <li><a href="#privacy"><span class="mi" aria-hidden="true">🔒</span>Privacy &amp; your data</a></li>
       </ul>
-      <!-- TODO(auth): "Sign in" / "My account" goes here once real patient login exists (see app.js). -->
+      <!-- TEST BUILD account (Supabase, no BAA). Hidden until supabase-config.js is filled in. See TODO(auth) in app.js. -->
+      <section class="card" id="account" aria-labelledby="account-title" hidden>
+        <h2 class="h3" id="account-title">Your account</h2>
+        <div id="account-out">
+          <p class="fine">Sign in to keep your habits, check-ins, waist entries and wins in sync across your devices.</p>
+          <div class="callout"><p><strong>Test version:</strong> please use made-up information only. Don't enter
+            real health details yet.</p></div>
+          <form id="signin-form" novalidate>
+            <label class="field">Email
+              <input type="email" name="email" autocomplete="email" inputmode="email" required>
+            </label>
+            <p class="form-error" role="alert"></p>
+            <button type="submit" class="btn btn-primary btn-block">Email me a sign-in code</button>
+          </form>
+          <form id="code-form" novalidate hidden>
+            <p class="fine" id="code-sent" role="status"></p>
+            <label class="field">6-digit code
+              <input type="text" name="code" autocomplete="one-time-code" inputmode="numeric" maxlength="6" required>
+            </label>
+            <p class="form-error" role="alert"></p>
+            <button type="submit" class="btn btn-primary btn-block">Sign in</button>
+            <button type="button" class="link-btn" id="code-back">Use a different email or get a new code</button>
+          </form>
+        </div>
+        <div id="account-in" hidden>
+          <p>Signed in as <strong id="account-email"></strong></p>
+          <p class="fine" id="sync-status" role="status"></p>
+          <button type="button" class="btn btn-ghost btn-block" id="signout">Sign out</button>
+        </div>
+      </section>
     </section>
 
     <section class="view" data-view="privacy" aria-labelledby="privacy-title">
@@ -495,12 +537,14 @@
         <ul>
           <li><strong>Quiz answers, name and email</strong> stay in this browser tab and are gone when you close it.
             They aren't sent anywhere.</li>
-          <li><strong>Habits, check-ins, waist entries and wins</strong> are saved only on this device.</li>
+          <li><strong>Habits, check-ins, waist entries and wins</strong> are saved on this device. If you sign in
+            (under More), they are also saved to a test account so they sync across your devices. Signing out removes
+            them from this device. Test accounts are for made-up information only.</li>
           <li><strong>Membership and consult forms</strong> don't send anything yet.</li>
         </ul>
         <p>Before the practice uses this app with patients, these will be connected to secure, HIPAA-compliant systems
           and this page will be replaced with the practice's privacy notice.</p>
-        <button type="button" class="btn btn-ghost btn-block" id="clear-all">Delete everything this app saved on this device</button>
+        <button type="button" class="btn btn-ghost btn-block" id="clear-all">Delete everything this app saved</button>
       </div>
     </section>
   </main>
@@ -526,6 +570,8 @@
     <a href="#learn" data-tab="learn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5a2 2 0 0 1 2-2h12v16H6a2 2 0 0 0-2 2z"/><path d="M4 19V5"/></svg><span>Learn</span></a>
   </nav>
 
+  <script src="vendor/supabase.js"></script>   <!-- @supabase/supabase-js 2.117.2, UMD build, vendored -->
+  <script src="supabase-config.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

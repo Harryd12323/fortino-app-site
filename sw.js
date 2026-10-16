@@ -1,17 +1,18 @@
 // Service worker: makes the app installable and lets it open offline.
-// It caches only the app's own files. It never caches or sees form data (nothing is sent anywhere yet).
-// TODO(HIPAA): once the app talks to a real backend, never cache API responses that contain patient data here.
+// It caches only the app's own files. Supabase requests (sign-in and test-account sync) go to another origin, so
+// they pass straight through and are never cached. TODO(HIPAA): keep it that way for any patient-data API.
 // Bump VERSION whenever any app file changes, so phones pick up the new version.
-const VERSION = "fortino-v3";
+const VERSION = "fortino-v9";
 const SHELL = [
   "./", "./index.html", "./styles.css", "./app.js", "./manifest.json",
+  "./supabase-config.js", "./vendor/supabase.js",
   "./icons/icon.svg", "./icons/icon-192.png", "./icons/icon-512.png",
   "./icons/icon-maskable-512.png", "./icons/apple-touch-icon.png",
   "./images/article-beach-walk.jpg",
   "./images/article-calm-beach.jpg",
   "./images/article-consult.jpg",
   "./images/article-ocean.jpg",
-  "./images/article-produce.jpg",
+  "./images/article-protein.jpg",
   "./images/article-walking.jpg",
   "./images/dr-fortino.jpg",
   "./images/food-bowl.jpg",

@@ -289,6 +289,9 @@ main {
 .article .callout { background: var(--tint); border-left: 4px solid var(--cyan); border-radius: 0 12px 12px 0; padding: .85rem 1rem; margin: 1.25rem 0; }
 .article .callout h2 { margin-top: 0; }
 .article .callout.urgent { background: #fdf3f1; border-left-color: var(--error); }
+#account .callout { background: var(--tint); border-left: 4px solid var(--cyan); border-radius: 0 12px 12px 0; padding: .7rem .9rem; margin: .75rem 0 1rem; font-size: .9rem; }
+#account .callout p { margin: 0; }
+#account-in p:first-of-type { margin-top: 0; overflow-wrap: anywhere; }
 .checklist { list-style: none; padding: 0 !important; }
 .checklist li { position: relative; padding: .3rem 0 .3rem 1.9rem; margin: 0 !important; border-bottom: 1px dashed var(--line); }
 .checklist li::before { content: ""; position: absolute; left: 0; top: .5rem; width: 18px; height: 18px; border: 2px solid #aac3d3; border-radius: 5px; background: #fff; }
@@ -449,6 +452,7 @@ main {
 .day small { font-size: .68rem; font-weight: 600; }
 .day span { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; border: 2px solid #c3d6e2; color: #fff; font-weight: 700; }
 .day[aria-pressed="true"] span { background: var(--cyan); border-color: var(--cyan); }
+.day:disabled { opacity: .4; cursor: default; }   /* later this week: can't be ticked yet */
 .streak-best { margin: .5rem 0 0; }
 .fold summary { display: flex; align-items: center; min-height: 44px; cursor: pointer; list-style: none; }
 .fold summary::-webkit-details-marker { display: none; }
