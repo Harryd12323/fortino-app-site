@@ -1,5 +1,5 @@
 // Dr. Robert Fortino — patient-facing weight-loss PWA prototype. Plain JS, no build step, no outside scripts.
-// Five tabs: Today · Progress · Plan · Care · Learn (plus the readiness quiz and the ⋯ "More" page).
+// Five tabs: Today · Progress · Plan · Care · Learn (plus the readiness quiz and the top-right "More" page).
 //
 // PREVIEW: nothing leaves this device. Before real patients use it, every "TODO(HIPAA)", "TODO(auth)" and
 // "TODO(payments)" below (and in index.html) must be done, and every "TODO(confirm)" / "TODO(confirm with Doc)"
@@ -52,6 +52,7 @@ const load = (key, fallback) => { try { return JSON.parse(localStorage.getItem(k
 const save = (key, value) => { localStorage.setItem(key, JSON.stringify(value)); queuePush(key); };
 const KEYS = { habits: "fortino.habits", checkins: "fortino.checkins", waist: "fortino.waist", wins: "fortino.wins",
                goal: "fortino.goal", workoutTimes: "fortino.workoutTimes",   // these two: this device only, not synced
+               journal: "fortino.journal",   // this device only, never synced (sensitive free text; see Journal)
                moveQuiz: "fortino.moveQuiz",
                oldWeights: "fortino.weights" };   // oldWeights: left by the earlier version; only ever deleted
 
@@ -151,9 +152,10 @@ if (sb) {
 }
 
 // ---------- Router ----------
-// #today (default) #progress #plan #care #care/book #learn #learn/move #learn/mind #learn/<slug> #quiz #more #privacy
+// #today (default) #journal #progress #plan #care #care/book #learn #learn/move #learn/mind #learn/<slug> #quiz
+// #more #privacy
 const ALIASES = { home: "today", membership: "plan", book: "care", menu: "more" };   // links from older versions
-const TAB_FOR = { today: "today", quiz: "today", progress: "progress", plan: "plan", care: "care",
+const TAB_FOR = { today: "today", quiz: "today", journal: "today", progress: "progress", plan: "plan", care: "care",
                   learn: "learn", article: "learn" };
 
 function route() {
@@ -170,6 +172,7 @@ function route() {
     else a.removeAttribute("aria-current");
   });
   if (view === "today") renderToday();
+  if (view === "journal") renderJournal();
   if (view === "progress") renderProgress();
   if (view === "more") renderInstallState();
   if (view === "learn") { showLearnPanel(sub); renderStart(); }
@@ -188,9 +191,9 @@ document.addEventListener("click", (e) => {
 
 // ---------- Habits (shared by Today and Progress) ----------
 const HABITS = [
-  { id: "protein", label: "Protein target", icon: "🥚" },
-  { id: "hydration", label: "Hydration target", icon: "💧" },
-  { id: "movement", label: "Movement or strength", icon: "👟" },
+  { id: "protein", label: "Protein target", icon: "egg" },          // icon: a name from ICONS in icons.js
+  { id: "hydration", label: "Hydration target", icon: "droplet" },
+  { id: "movement", label: "Movement or strength", icon: "footprints" },
 ];
 const habitsLog = () => load(KEYS.habits, {});
 const isDone = (log, day, id) => Boolean(log[day] && log[day][id]);
@@ -251,7 +254,7 @@ function renderWorkout() {
   if (t) $("#workout-time-text").textContent = `Planned for ${fmtTime(t)}`;
   // Done ticks the "Movement or strength" habit, so it counts toward that streak.
   const done = isDone(habitsLog(), day, "movement"), btn = $("#workout-done");
-  btn.textContent = done ? "✓ Done for today" : "Mark as done";
+  btn.innerHTML = done ? `${icon("check")}Done for today` : "Mark as done";
   btn.setAttribute("aria-pressed", done);
 
 }
@@ -269,8 +272,8 @@ function renderToday() {
     li.innerHTML = `<button type="button" class="habit-btn" aria-pressed="${done}">
         <span class="habit-icon" aria-hidden="true"></span>
         <span class="habit-text"><strong></strong><small></small></span>
-        <span class="habit-check" aria-hidden="true">${done ? "✓" : ""}</span></button>`;
-    $(".habit-icon", li).textContent = h.icon;
+        <span class="habit-check" aria-hidden="true">${done ? icon("check") : ""}</span></button>`;
+    $(".habit-icon", li).innerHTML = icon(h.icon);
     $("strong", li).textContent = h.label;
     $("small", li).textContent = CONFIG.targets[h.id] ? `Target: ${CONFIG.targets[h.id]}` : "Target: set with your care team";
     $("button", li).addEventListener("click", () => {
@@ -289,6 +292,7 @@ function renderToday() {
     $("#checkin-stomach").hidden = c.stomach !== "Bothering me";
   }
   $("#newcomer").hidden = Object.keys(log).length > 0 || Object.keys(load(KEYS.checkins, {})).length > 0;
+  renderJournalCard();
 
   // Guide of the day: rotates through the library
   const g = GUIDES[Math.floor(Date.now() / 864e5) % GUIDES.length];
@@ -373,6 +377,167 @@ $("#workout-done").addEventListener("click", () => {
   renderToday();
 });
 
+// ---------- JOURNAL (Today card + #journal history) ----------
+// TODO(HIPAA): entries are free-text health information. They're kept ONLY on this device (KEYS.journal is
+// deliberately not in SYNCED) and never sent anywhere. Keep entry text and labels out of toasts, URLs, page titles,
+// console logs and (later) notifications. Syncing them needs the HIPAA-ready backend first (TODO(auth)).
+// Voice: phones' keyboard dictation fills the textarea; no in-app speech API (it would send audio to Google/Apple).
+// Entry: { id: Date.now() when written, date: "YYYY-MM-DD", text, labels: [..] }
+const JOURNAL_LABELS = ["Food", "Movement", "Mood", "Sleep", "Stress", "Win", "For my visit"];
+const JOURNAL_MAX = 4000, LABEL_MAX = 24;
+const journal = () => load(KEYS.journal, []);
+const usedLabels = () => [...new Set(journal().flatMap((e) => e.labels))].sort((a, b) => a.localeCompare(b));
+const entryWhen = (e) => `${fmtDate(e.date, { weekday: "short", month: "short", day: "numeric", year: "numeric" })}, ${
+  new Date(e.id).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+
+// Builds the entry form, for a new entry (Today) or for editing one (history). refresh() repaints the label chips.
+function journalForm({ entry = null, onSaved, onCancel }) {
+  const form = document.createElement("form");
+  form.className = "journal-form";
+  form.noValidate = true;
+  form.innerHTML = `<label class="field"><span></span>
+      <textarea name="text" rows="5" maxlength="${JOURNAL_MAX}"></textarea></label>
+    <p class="fine journal-voice">${icon("mic")}<span>To speak instead of typing, tap the microphone on your keyboard.</span></p>
+    <fieldset class="q"><legend>Labels <small>(optional)</small></legend>
+      <div class="chips chips-wrap journal-chips"></div>
+      <div class="label-add">
+        <label class="field">Add your own label <input type="text" name="label" maxlength="${LABEL_MAX}" enterkeyhint="done"></label>
+        <button type="button" class="btn btn-ghost">${icon("tag")}Add</button>
+      </div></fieldset>
+    <p class="form-error" role="alert"></p>
+    <button type="submit" class="btn btn-primary btn-block"></button>
+    ${onCancel ? '<button type="button" class="link-btn" data-cancel>Cancel</button>' : ""}`;
+  $("label > span", form).textContent = entry ? "Your entry" : "What's on your mind?";
+  $("button[type=submit]", form).textContent = entry ? "Save changes" : "Save entry";
+  const text = form.elements.text, err = $(".form-error", form);
+  if (entry) text.value = entry.text;
+  const picked = new Set(entry ? entry.labels : []), added = new Set();
+
+  const refresh = () => {
+    const chips = $(".journal-chips", form);
+    chips.replaceChildren();
+    [...new Set([...JOURNAL_LABELS, ...usedLabels(), ...added, ...picked])].forEach((l) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.textContent = l; b.setAttribute("aria-pressed", picked.has(l));
+      b.addEventListener("click", () => {
+        if (picked.has(l)) picked.delete(l); else picked.add(l);
+        b.setAttribute("aria-pressed", picked.has(l));
+      });
+      chips.append(b);
+    });
+  };
+  const addLabel = () => {
+    const input = form.elements.label, l = input.value.trim().replace(/\s+/g, " ").slice(0, LABEL_MAX);
+    if (!l) { input.focus(); return; }
+    // Reuse an existing label's spelling when it only differs by case.
+    const known = [...JOURNAL_LABELS, ...usedLabels(), ...added].find((x) => x.toLowerCase() === l.toLowerCase());
+    added.add(known || l); picked.add(known || l);
+    input.value = "";
+    refresh();
+  };
+  $(".label-add button", form).addEventListener("click", addLabel);
+  form.elements.label.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); addLabel(); } });
+  if (onCancel) $("[data-cancel]", form).addEventListener("click", onCancel);
+
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const t = text.value.trim();
+    if (!t) { err.textContent = "Write something first, or use your keyboard's microphone to speak."; text.focus(); return; }
+    err.textContent = "";
+    const labels = [...picked], all = journal();
+    save(KEYS.journal, entry
+      ? all.map((x) => (x.id === entry.id ? { ...x, text: t.slice(0, JOURNAL_MAX), labels } : x))
+      : [...all, { id: Date.now(), date: todayISO(), text: t.slice(0, JOURNAL_MAX), labels }]);
+    toast(entry ? "Entry updated on this device." : "Journal entry saved on this device.");
+    if (!entry) { text.value = ""; picked.clear(); added.clear(); refresh(); }
+    onSaved();
+  });
+  refresh();
+  form.refresh = refresh;
+  return form;
+}
+
+const newEntryForm = journalForm({ onSaved: () => renderJournalCard() });
+$("#journal-new").append(newEntryForm);
+
+function renderJournalCard() {
+  const n = journal().length;
+  $("#journal-history-link").textContent = n ? `Past entries (${n})` : "Past entries";
+  newEntryForm.refresh();   // picks up labels added or removed in the history view; the draft text is kept
+}
+
+// History filters live in memory only, so labels never land in the URL or browser history.
+const jFilter = { label: null, from: "", to: "" };
+const jFilters = $("#journal-filters");
+const fromIn = $("input[name=from]", jFilters), toIn = $("input[name=to]", jFilters);
+fromIn.max = toIn.max = todayISO();
+jFilters.addEventListener("change", () => {
+  jFilter.from = fromIn.value; jFilter.to = toIn.value;
+  toIn.min = fromIn.value;
+  renderJournal();
+});
+$("#journal-clear").addEventListener("click", () => {
+  Object.assign(jFilter, { label: null, from: "", to: "" });
+  fromIn.value = toIn.value = ""; toIn.min = "";
+  renderJournal();
+  $("#journal-title").focus();
+});
+
+function renderJournal() {
+  const all = journal(), labels = usedLabels();
+  if (jFilter.label && !labels.includes(jFilter.label)) jFilter.label = null;   // its last entry was deleted
+  jFilters.hidden = !all.length;
+
+  const chips = $("#journal-filter-labels");
+  chips.replaceChildren();
+  chips.hidden = !labels.length;
+  [null, ...labels].forEach((l) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.textContent = l || "All"; b.setAttribute("aria-pressed", l === jFilter.label);
+    b.addEventListener("click", () => { jFilter.label = l; renderJournal(); });
+    chips.append(b);
+  });
+  $("#journal-clear").hidden = !(jFilter.label || jFilter.from || jFilter.to);
+
+  const shown = all.filter((e) => (!jFilter.label || e.labels.includes(jFilter.label))
+    && (!jFilter.from || e.date >= jFilter.from) && (!jFilter.to || e.date <= jFilter.to)).sort((a, b) => b.id - a.id);
+  $("#journal-summary").textContent = !all.length ? "No entries yet. Write your first one on the Today tab."
+    : shown.length === all.length ? `${all.length} entr${all.length === 1 ? "y" : "ies"}, newest first.`
+    : shown.length ? `Showing ${shown.length} of ${all.length} entries.` : "No entries match these filters.";
+
+  const ul = $("#journal-list");
+  ul.replaceChildren();
+  shown.forEach((e) => {
+    const li = document.createElement("li");
+    li.className = "card journal-entry";
+    li.innerHTML = `<p class="journal-when"></p><p class="journal-text"></p><ul class="journal-tags"></ul>
+      <div class="journal-actions"><button type="button" class="btn btn-ghost">${icon("pencil")}Edit</button>
+      <button type="button" class="btn btn-ghost btn-danger">${icon("trash-2")}Delete</button></div>`;
+    const when = entryWhen(e);
+    $(".journal-when", li).textContent = when;
+    $(".journal-text", li).textContent = e.text;
+    e.labels.forEach((l) => { const t = document.createElement("li"); t.className = "tag tag-soft"; t.textContent = l; $(".journal-tags", li).append(t); });
+    if (!e.labels.length) $(".journal-tags", li).remove();
+    const [edit, del] = $$(".journal-actions button", li);
+    edit.setAttribute("aria-label", `Edit entry from ${when}`);
+    del.setAttribute("aria-label", `Delete entry from ${when}`);
+    edit.addEventListener("click", () => {
+      const back = () => { renderJournal(); $("#journal-title").focus(); };
+      const f = journalForm({ entry: e, onSaved: back, onCancel: back });
+      li.replaceChildren(f);
+      f.elements.text.focus();
+    });
+    del.addEventListener("click", () => {
+      if (!confirm("Delete this journal entry? This can't be undone.")) return;
+      save(KEYS.journal, journal().filter((x) => x.id !== e.id));
+      toast("Entry deleted.");
+      renderJournal();
+      $("#journal-title").focus();
+    });
+    ul.append(li);
+  });
+}
+
 // ---------- PROGRESS (behaviors only; never weight) ----------
 function renderProgress() {
   const log = habitsLog(), wrap = $("#streaks");
@@ -383,7 +548,7 @@ function renderProgress() {
     card.innerHTML = `<div class="streak-head"><span class="habit-icon" aria-hidden="true"></span><h2 class="h3"></h2>
         <span class="streak-num"><b></b><small>day streak</small></span></div>
       <div class="week-row" role="group"></div><p class="fine streak-best"></p>`;
-    $(".habit-icon", card).textContent = h.icon;
+    $(".habit-icon", card).innerHTML = icon(h.icon);
     $("h2", card).textContent = h.label;
     $(".streak-num b", card).textContent = currentStreak(log, h.id);
     const best = bestStreak(log, h.id);
@@ -397,7 +562,7 @@ function renderProgress() {
       const b = document.createElement("button");
       b.type = "button"; b.className = "day"; b.setAttribute("aria-pressed", done); b.disabled = future;
       b.setAttribute("aria-label", `${h.label}, ${fmtDate(day, { weekday: "long", month: "short", day: "numeric" })}: ${future ? "upcoming" : done ? "done" : "not done"}`);
-      b.innerHTML = `<small></small><span>${done ? "✓" : ""}</span>`;
+      b.innerHTML = `<small></small><span>${done ? icon("check") : ""}</span>`;
       $("small", b).textContent = i === 0 ? "Today" : fmtDate(day, { weekday: "narrow" });
       b.addEventListener("click", () => { setHabit(day, h.id, !done); renderProgress(); });
       row.append(b);
@@ -414,7 +579,7 @@ function renderLog(sel, list, text, key) {
   ul.replaceChildren();
   [...list].sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id).forEach((x) => {
     const li = document.createElement("li");
-    li.innerHTML = `<span class="log-text"></span><span class="log-date"></span><button type="button">✕</button>`;
+    li.innerHTML = `<span class="log-text"></span><span class="log-date"></span><button type="button">${icon("x")}</button>`;
     $(".log-text", li).textContent = text(x);
     $(".log-date", li).textContent = fmtDate(x.date, { month: "short", day: "numeric" });
     const b = $("button", li);
@@ -461,7 +626,7 @@ winForm.addEventListener("submit", (e) => {
 
 $("#clear-all").addEventListener("click", async () => {
   const scope = user ? "on this device and in your account" : "on this device";
-  if (!confirm(`Delete everything this app saved ${scope} (habits, check-ins, waist entries, wins)? This can't be undone.`)) return;
+  if (!confirm(`Delete everything this app saved ${scope} (habits, check-ins, waist entries, wins, journal)? This can't be undone.`)) return;
   if (user) {
     const { error } = await sb.from("user_data").delete().eq("user_id", user.id);
     if (error) { toast("Couldn't delete your account data. Check your connection and try again."); return; }
@@ -813,11 +978,7 @@ function showLearnPanel(sub) {
   });
 }
 
-const MOVE_ICONS = {
-  strength: `<svg viewBox="0 0 24 24"><path d="M6.5 6.5v11M17.5 6.5v11M3 9.5v5M21 9.5v5M6.5 12h11"/></svg>`,
-  cardio: `<svg viewBox="0 0 24 24"><path d="M3 12h4l2.5-6 5 12 2.5-6h4"/></svg>`,
-  gentle: `<svg viewBox="0 0 24 24"><path d="M4 15c2.5-4 5.5-4 8 0s5.5 4 8 0"/><path d="M4 9c2.5-4 5.5-4 8 0s5.5 4 8 0"/></svg>`,
-};
+const MOVE_ICONS = { strength: "dumbbell", cardio: "activity", gentle: "waves" };
 
 function renderMove() {
   const list = $("#move-list");
@@ -825,7 +986,7 @@ function renderMove() {
     const el = document.createElement("article");
     el.className = "card session";
     el.id = `session-${m.id}`;
-    el.innerHTML = `<div class="card-row"><span class="round-icon" aria-hidden="true">${MOVE_ICONS[m.kind]}</span>
+    el.innerHTML = `<div class="card-row"><span class="round-icon" aria-hidden="true">${icon(MOVE_ICONS[m.kind])}</span>
         <div><h2 class="h3"></h2><p class="muted-line"></p></div><span class="tag tag-soft"></span></div>
       <p class="session-impact"></p>
       <p><strong>What it's for:</strong> <span class="for"></span></p>
@@ -928,6 +1089,7 @@ startForm.addEventListener("submit", (e) => {
   err.textContent = "";
   save(KEYS.moveQuiz, { age: Number(f.age.value), goal: f.goal.value, struggle: f.struggle.value,
     equipment: equipment.filter((x) => x !== "none"), time: Number(f.time.value), careTeam: !symptoms.includes("none") });
+  startOpen = false;
   renderStart();
   $("#start-body").focus();
 });
@@ -940,14 +1102,30 @@ $("#start-redo").addEventListener("click", () => {
     (a.equipment.length ? a.equipment : ["none"]).forEach((v) => { const c = $(`input[name="equipment"][value="${v}"]`, startForm); if (c) c.checked = true; });
   }
   // Symptoms are always asked fresh.
-  startForm.hidden = false; $("#start-result").hidden = true;
+  startOpen = true;
+  renderStart();
   $("legend", startForm).scrollIntoView({ block: "center" });
+});
+
+// Questions are folded behind "See my starting point" until opened (startOpen), so the Move tab stays uncluttered.
+let startOpen = false;
+$("#start-open").addEventListener("click", () => {
+  startOpen = true;
+  renderStart();
+  $("input", startForm).focus();
+});
+$("#start-cancel").addEventListener("click", () => {
+  startOpen = false;
+  renderStart();
+  $(load(KEYS.moveQuiz, null) ? "#start-redo" : "#start-open").focus();
 });
 
 function renderStart() {
   const a = load(KEYS.moveQuiz, null);
-  startForm.hidden = Boolean(a);
-  $("#start-result").hidden = !a;
+  startForm.hidden = !startOpen;
+  $("#start-intro").hidden = startOpen || Boolean(a);
+  $("#start-open").setAttribute("aria-expanded", startOpen);
+  $("#start-result").hidden = startOpen || !a;
   if (!a) return;
   const body = $("#start-body");
   if (a.careTeam || a.struggle === "pain") {
@@ -1187,6 +1365,8 @@ $("#code-back").addEventListener("click", () => showSigninStep("email"));
 $("#signout").addEventListener("click", async () => {
   await pushPending();
   if (pending.size && !confirm("Some changes haven't synced to your account yet and will be lost. Sign out anyway?")) return;
+  // The journal is never synced, so signing out (which clears this device) deletes it for good.
+  if (journal().length && !confirm("Signing out deletes your journal from this device. It isn't saved to your account, so it can't be recovered. Sign out anyway?")) return;
   await sb.auth.signOut();
   pending.clear();
   Object.values(KEYS).forEach((k) => localStorage.removeItem(k));
@@ -1214,8 +1394,6 @@ const ua = navigator.userAgent;
 const isIOS = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 const isAndroid = /Android/.test(ua);
 
-const ICON_SHARE = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>`;
-const ICON_DOTS = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>`;
 
 function renderInstallState() {
   $("#install-state").textContent = isStandalone() ? "Installed" : "";
@@ -1237,7 +1415,7 @@ function openInstall() {
     });
   } else if (isIOS) {
     body.innerHTML = `<ol class="howto">
-        <li>Tap the <span class="kbd">${ICON_SHARE} Share</span> button (bottom of the screen in Safari, or top right
+        <li>Tap the <span class="kbd">${icon("share")} Share</span> button (bottom of the screen in Safari, or top right
           on iPad).</li>
         <li>Scroll down and tap <span class="kbd">Add to Home Screen</span>.</li>
         <li>Tap <span class="kbd">Add</span> in the top right corner.</li>
@@ -1245,7 +1423,7 @@ function openInstall() {
       <p class="fine">Don't see it? Open this page in Safari and try again.</p>`;
   } else if (isAndroid) {
     body.innerHTML = `<ol class="howto">
-        <li>Tap the <span class="kbd">${ICON_DOTS} menu</span> in the top right of Chrome.</li>
+        <li>Tap the <span class="kbd">${icon("ellipsis-vertical")} menu</span> in the top right of Chrome.</li>
         <li>Tap <span class="kbd">Add to Home screen</span> or <span class="kbd">Install app</span>.</li>
         <li>Tap <span class="kbd">Install</span> or <span class="kbd">Add</span> to confirm.</li>
       </ol>
