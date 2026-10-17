@@ -152,7 +152,7 @@ if (sb) {
 }
 
 // ---------- Router ----------
-// #today (default) #journal #progress #plan #care #care/book #learn #learn/move #learn/mind #learn/<slug> #quiz
+// #today (default) #journal #progress #plan #care #care/book #learn #learn/move #learn/mind #learn/stretch #learn/<slug> #quiz
 // #more #privacy
 const ALIASES = { home: "today", membership: "plan", book: "care", menu: "more" };   // links from older versions
 const TAB_FOR = { today: "today", quiz: "today", journal: "today", progress: "progress", plan: "plan", care: "care",
@@ -161,7 +161,7 @@ const TAB_FOR = { today: "today", quiz: "today", journal: "today", progress: "pr
 function route() {
   let [name, arg] = (location.hash.slice(1) || "today").split("/");
   if (ALIASES[name]) { if (name === "book") arg = "book"; name = ALIASES[name]; }
-  const sub = name === "learn" && (arg === "move" || arg === "mind") ? arg : "articles";   // Learn sub-tabs
+  const sub = name === "learn" && ["move", "mind", "stretch"].includes(arg) ? arg : "articles";   // Learn sub-tabs
   let view = name === "learn" && arg && sub === "articles" ? "article" : name;
   if (!$(`[data-view="${view}"]`)) view = "today";
   if (view === "article" && !renderArticle(arg)) { location.replace("#learn"); return; }
@@ -955,6 +955,9 @@ function renderGuideList() {
 }
 
 function renderArticle(slug) {
+  $("#article-back").href = "#learn";
+  $("#article-back-label").textContent = "All guides";
+  if (STRETCH_ARTICLES.some((x) => x.slug === slug)) return renderStretchArticle(slug);
   const g = GUIDES.find((x) => x.slug === slug);
   if (!g) return false;
   const sources = g.sources.length
@@ -1047,8 +1050,62 @@ function renderMind() {
     list.append(el);
   });
 }
+// ---------- LEARN → Stretch (content in library.js STRETCH_ARTICLES; TODO(confirm) clinical review) ----------
+// The list is in the Stretch panel; each article opens in the article view (#learn/<slug>) and links back here.
+// Everything from library.js is set with textContent or as link hrefs, never as HTML.
+function renderStretch() {
+  $("#stretch-safety").textContent = STRETCH_SAFETY;
+  const ul = $("#stretch-list");
+  STRETCH_ARTICLES.forEach((a) => {
+    const li = document.createElement("li");
+    li.innerHTML = `<a class="card stretch-card" href="#learn/${a.slug}"><small></small><strong></strong><span></span></a>`;
+    $("small", li).textContent = `${a.minutes} min read · ${a.stretches.length} ${a.stretches.length === 1 ? "move" : "moves"} · Draft`;
+    $("strong", li).textContent = a.title;
+    $("span", li).textContent = a.summary;
+    ul.append(li);
+  });
+}
+
+function renderStretchArticle(slug) {
+  const a = STRETCH_ARTICLES.find((x) => x.slug === slug);
+  const body = $("#article-body");
+  $("#article-back").href = "#learn/stretch";
+  $("#article-back-label").textContent = "All stretch guides";
+  const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+  const links = (items) => { const ol = el("ol", "sources"); items.forEach((s) => {
+    const li = el("li"); const link = el("a", null, s.label); link.href = s.url; link.target = "_blank"; link.rel = "noopener";
+    li.append(link); ol.append(li); }); return ol; };
+
+  body.replaceChildren(el("p", "eyebrow", `Stretch · ${a.minutes} min read`), el("h1", null, a.title),
+    el("p", "draft-flag", "Draft · awaiting review by Dr. Fortino"));
+  a.intro.forEach((p) => body.append(el("p", null, p)));
+  a.stretches.forEach((s) => {
+    const card = el("section", "card stretch-move");
+    card.append(el("h2", "h3", s.name));
+    const ol = el("ol", "howto"); s.steps.forEach((t) => ol.append(el("li", null, t)));
+    const easier = el("p", "easier"); easier.append(el("strong", null, "Easier version: "), s.easier);
+    const safety = el("p", "safety-note"); safety.append(el("strong", null, "Safety: "), s.safety);
+    card.append(ol, easier, safety);
+    body.append(card);
+  });
+  if (a.howTo) body.append(el("p", null, a.howTo));
+  const stop = el("div", "callout"); stop.append(el("h2", null, "Stop if it hurts"), el("p", null, a.stop));
+  const pro = el("div", "pro-note"); pro.append(el("strong", null, "Talk to a professional"), a.pro);
+  body.append(stop, pro);
+  // optional official demonstrations: linked, never copied or embedded
+  body.append(el("h2", null, "See a demo"),
+    el("p", "fine", "Optional demonstrations on official sites. They open in a new tab; this app doesn't copy them."),
+    links(a.demos));
+  body.append(el("h2", null, "Sources"), links(a.sources));
+  const tip = el("div", "callout try-today"); tip.append(el("h2", null, "Try this today"), el("p", null, a.tip));
+  body.append(tip);
+  body.insertAdjacentHTML("beforeend", NOT_ADVICE);
+  return true;
+}
+
 renderMove();
 renderMind();
+renderStretch();
 
 // ---------- Move: "Find your starting point" (questions and rules in library.js; TODO(confirm with Doc)) ----------
 // Saves { age, goal, struggle, equipment, time, careTeam } to KEYS.moveQuiz (synced). Which symptoms someone ticked

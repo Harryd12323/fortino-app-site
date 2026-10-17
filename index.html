@@ -585,7 +585,7 @@
     <section class="view" data-view="learn" aria-labelledby="learn-title">
       <h1 id="learn-title" class="h2">Learn</h1>
       <nav class="subtabs" aria-label="Learn sections">
-        <a href="#learn" data-sub="articles">Articles</a><a href="#learn/move" data-sub="move">Move</a><a href="#learn/mind" data-sub="mind">Mind</a>
+        <a href="#learn" data-sub="articles">Nutrition</a><a href="#learn/move" data-sub="move">Move</a><a href="#learn/mind" data-sub="mind">Mind</a><a href="#learn/stretch" data-sub="stretch">Stretch</a>
       </nav>
 
       <div data-panel="articles">
@@ -663,10 +663,24 @@
         </div>
         <div id="mind-list"></div>
       </div>
+
+      <!-- TODO(confirm): Stretch content (library.js STRETCH_ARTICLES) needs clinical review by Dr. Fortino before launch. -->
+      <div data-panel="stretch" hidden>
+        <div class="notice" role="note">
+          <p><strong>Before you stretch:</strong> <span id="stretch-safety"></span></p>
+        </div>
+        <p class="draft-flag">Draft · awaiting review by Dr. Fortino</p>
+        <p class="lede">Gentle stretches for flexibility and comfort, with an easier version of every move. Stretching
+          isn't a weight-loss treatment, and it doesn't prevent injuries or treat joint problems. Your care team's
+          advice for you comes first.</p>
+        <ul class="stretch-list" id="stretch-list"></ul>
+        <p class="disclaimer">General information, not medical advice. These routines are built from published guidance
+          but haven't been tested as exact programs. Your physician decides what's right for you.</p>
+      </div>
     </section>
 
     <section class="view" data-view="article" aria-live="polite">
-      <a href="#learn" class="back-link"><i data-icon="arrow-left"></i>All guides</a>
+      <a href="#learn" class="back-link" id="article-back"><i data-icon="arrow-left"></i><span id="article-back-label">All guides</span></a>
       <article id="article-body" class="article"></article>
     </section>
 

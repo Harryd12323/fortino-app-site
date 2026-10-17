@@ -470,3 +470,282 @@ function recommendSessions(a) {
   if (a.age >= 3 && a.goal !== "balance") swapIn("balance-builder", "Balance practice builds steadiness and confidence on your feet.");
   return picks;
 }
+
+// ---------- STRETCH ----------
+// Five articles adapted from a research report on stretching and mobility for adults in a medical weight-loss program.
+// TODO(confirm): CLINICAL REVIEW BY DR. FORTINO BEFORE LAUNCH (every stretch, dose, safety cue and "Try this today").
+// Rules for editing (keep them, on top of the rules at the top of this file):
+//   - stretching is a flexibility and comfort practice. Never say it causes weight loss, prevents injury, stops or
+//     prevents soreness, or treats joint problems or arthritis
+//   - keep every stretch's easier version and safety cue, and every "Stop if it hurts" and "Talk to a professional"
+//   - no copied illustrations or video: official demonstrations are linked ("See a demo"), never embedded
+//   - sources are links to the original pages; no citation codes
+
+const STRETCH_SAFETY = "Move slowly and stay within a comfortable range. A mild pull while you stretch can be normal, " +
+  "but pain is never the goal. Stop if a movement hurts or your symptoms build. Check with your care team before " +
+  "changing your activity if you've had a recent injury or surgery, have real trouble with balance, or have a bone " +
+  "or joint condition that could get worse with activity.";
+
+const STRETCH_SRC = {
+  mayoFlex: { label: "Mayo Clinic. Stretching: Focus on flexibility.",
+              url: "https://www.mayoclinic.org/healthy-lifestyle/fitness/in-depth/stretching/art-20047931" },
+  mayoBasic: { label: "Mayo Clinic. A guide to basic stretches.",
+               url: "https://www.mayoclinic.org/healthy-lifestyle/fitness/in-depth/stretching/art-20546848" },
+  mayoDesk: { label: "Mayo Clinic. Desk stretches: Video collection.",
+              url: "https://www.mayoclinic.org/healthy-lifestyle/adult-health/in-depth/office-stretches/art-20046041" },
+  niddkActive: { label: "National Institute of Diabetes and Digestive and Kidney Diseases (NIDDK). Tips to Help You Get Active.",
+                 url: "https://www.niddk.nih.gov/health-information/weight-management/tips-get-active" },
+  niddkAnySize: { label: "NIDDK. Staying Active at Any Size.",
+                  url: "https://www.niddk.nih.gov/health-information/weight-management/staying-active-at-any-size" },
+  aaosKnee: { label: "American Academy of Orthopaedic Surgeons (AAOS), OrthoInfo. Knee Conditioning Program.",
+              url: "https://orthoinfo.aaos.org/en/recovery/knee-conditioning-program/" },
+  aaosHip: { label: "AAOS, OrthoInfo. Hip Conditioning Program.",
+             url: "https://orthoinfo.aaos.org/en/recovery/hip-conditioning-program/" },
+  osha: { label: "U.STRETCH_SRC. Occupational Safety and Health Administration (OSHA). Computer Workstations eTool: Work Process and Recognition.",
+          url: "https://www.osha.gov/etools/computer-workstations/work-process" },
+  nioshHome: { label: "National Institute for Occupational Safety and Health (NIOSH). Working from Home: How to Optimize Your Work Environment and Stay Healthy. 2020.",
+               url: "https://www.cdc.gov/niosh/bulletin/2020/working-from-home.html" },
+  nioshBreaks: { label: "NIOSH. Supplementary breaks for data operators minimized discomfort. 2007.",
+                 url: "https://archive.cdc.gov/www_cdc_gov/niosh/updates/upd-07-11-07.html" },
+  cochrane: { label: "Herbert RD, de Noronha M, Kamper SJ. Stretching to prevent or reduce muscle soreness after exercise. Cochrane Database of Systematic Reviews. 2011;(7):CD004577.",
+              url: "https://doi.org/10.1002/14651858.CD004577.pub3" },
+  acr: { label: "Kolasinski SL, et al. 2019 American College of Rheumatology/Arthritis Foundation Guideline for the Management of Osteoarthritis of the Hand, Hip, and Knee. Arthritis Care Res. 2020;72(2):149–162.",
+         url: "https://doi.org/10.1002/acr.24131" },
+  medlineHip: { label: "MedlinePlus Medical Encyclopedia. Hip pain.",
+                url: "https://medlineplus.gov/ency/article/003179.htm" },
+};
+
+// Shared stretches (the same wording wherever they appear)
+const WALL_CALF = { name: "Wall calf stretch",
+  steps: ["Stand facing a wall with both hands on it.",
+    "Step one foot back. Keep that heel on the floor and that knee straight; let the front knee bend a little.",
+    "Stand tall and ease your hips toward the wall until you feel a mild stretch in the back calf.",
+    "Hold for 20 to 30 seconds, then switch sides. One or two rounds is plenty."],
+  easier: "Take a shorter step back and lean in less. Keep your hands on the wall for balance the whole time.",
+  safety: "No bouncing. Ease off if you feel pain rather than a mild pull." };
+
+const STRETCH_ARTICLES = [
+  { slug: "stretch-why", minutes: 4,
+    title: "Why stretching matters during weight loss",
+    summary: "What stretching can honestly do for you, and two easy stretches to start with.",
+    intro: [
+      "Stretching won't make you lose weight, and it doesn't burn many calories. What it can do is help you keep or " +
+      "gain flexibility, so your joints move through more of their natural range. That can make everyday movement, " +
+      "and exercise, feel easier to start.",
+      "The research is clearest about flexibility: regular stretching can improve it over time. It's much weaker for " +
+      "other popular claims. Stretching doesn't reliably prevent soreness after a workout, and studies of some other " +
+      "promised benefits have mixed results. So the honest goal is simple: move comfortably through the range you " +
+      "have, and build flexibility a little at a time.",
+      "Moving your body has health value even on weeks when the scale doesn't change. Think of stretching as one " +
+      "small, friendly part of a bigger activity plan.",
+    ],
+    stretches: [
+      WALL_CALF,
+      { name: "Across-the-chest shoulder stretch",
+        steps: ["Sit or stand tall.", "Bring one arm across your chest at about shoulder height.",
+          "Support it with your other arm, above or below the elbow.",
+          "Gently draw the arm closer until you feel a mild stretch behind the shoulder. Keep the shoulder down, not shrugged.",
+          "Hold for 20 to 30 seconds, then switch."],
+        easier: "Use less pressure and keep the arm a little lower.",
+        safety: "Don't force the shoulder." },
+    ],
+    howTo: "Don't bounce or force a stretch. Warm up with a little easy movement first, move smoothly, and aim for " +
+      "a mild pull, not pain. Thirty seconds is a common hold, but a shorter one is fine when you're new or stiff. " +
+      "Doing it regularly matters more than going further.",
+    stop: "Stop right away if a stretch causes sharp, pinching or building pain. Check with your care team before " +
+      "starting or changing your activity if you've had a recent injury or surgery, have trouble with balance, or have " +
+      "a bone or joint problem that could get worse with activity.",
+    pro: "Joint pain that keeps coming back or gets worse isn't something to just stretch through. It can have many " +
+      "causes, so talk with your care team about it.",
+    tip: "After a short walk, do one gentle calf stretch and one shoulder stretch on each side. Keep it easy enough " +
+      "that you can breathe normally.",
+    demos: [STRETCH_SRC.mayoBasic],
+    sources: [STRETCH_SRC.mayoFlex, STRETCH_SRC.mayoBasic, STRETCH_SRC.niddkActive, STRETCH_SRC.niddkAnySize, STRETCH_SRC.cochrane] },
+
+  { slug: "stretch-morning", minutes: 4,
+    title: "A gentle 5-minute morning routine",
+    summary: "Five easy minutes to get moving when you feel stiff after sleep.",
+    intro: [
+      "A short routine first thing can be an easy way to start moving, especially if you wake up stiff. There's no " +
+      "strong evidence that morning is a better time to stretch than later in the day. The point is that it's " +
+      "convenient, and easy to repeat.",
+      "Start with gentle movement before you hold any stretch, rather than stretching cold muscles. This exact " +
+      "five-minute sequence hasn't been tested as a program. It's a simple, low-effort routine put together from " +
+      "general warm-up, mobility and flexibility guidance.",
+    ],
+    stretches: [
+      { name: "Minute 1: Easy march",
+        steps: ["Stand near a counter or sturdy chair.",
+          "March slowly in place, lifting each foot only as high as feels comfortable. Let your arms swing naturally.",
+          "Keep going for 60 seconds."],
+        easier: "Sit near the front of a sturdy chair and lift one foot, then the other.",
+        safety: "Keep the movement small if your hips or knees feel stiff." },
+      { name: "Minute 2: Shoulder rolls and arm circles",
+        steps: ["Stand or sit tall.", "Roll both shoulders slowly backward five times, then forward five times.",
+          "Make small arm circles, with straight or softly bent arms: five each way.",
+          "Repeat at an easy pace until the minute is up."],
+        easier: "Make the circles smaller.",
+        safety: "Keep it easy and pain-free. Don't force your arms overhead." },
+      { name: "Minute 3: Heel-to-toe rocks",
+        steps: ["Stand with your hands on a counter or chair.", "Slowly rise a little onto the balls of your feet.",
+          "Lower your heels, then gently shift your weight back toward them.",
+          "Keep the movement small. Repeat for 8 to 12 slow rocks."],
+        easier: "Sit down and lift your heels, then your toes, one after the other.",
+        safety: "Keep holding on if your balance feels at all uncertain." },
+      { name: "Minute 4: Supported knee lifts",
+        steps: ["Hold a counter or chair.", "Lift one knee a few inches, lower it, then switch sides.",
+          "Keep your body tall and don't lean back.", "Aim for 6 to 10 lifts on each side."],
+        easier: "Do a seated march instead.",
+        safety: "Lift only as high as is comfortable." },
+      { ...WALL_CALF, name: "Minute 5: Wall calf stretch" },
+    ],
+    howTo: "This routine should feel easy. It's not a flexibility test.",
+    stop: "Stop if any movement hurts, makes you dizzy, or leaves you feeling unsteady. If you have balance problems " +
+      "or a knee, hip, back or other joint problem that could get worse with activity, check with your care team first.",
+    pro: "Take extra care, and get advice made for you, if you've had a recent fall, surgery or injury, or a big " +
+      "change in joint pain. If moving around or staying steady on your feet is hard, talk with your care team " +
+      "before starting something new.",
+    tip: "Put a sturdy chair where you'll do the routine tonight. Having it ready makes it easier to start tomorrow morning.",
+    demos: [STRETCH_SRC.mayoBasic],
+    sources: [STRETCH_SRC.mayoFlex, STRETCH_SRC.mayoBasic, STRETCH_SRC.niddkActive, STRETCH_SRC.aaosKnee] },
+
+  { slug: "stretch-desk", minutes: 4,
+    title: "Simple stretches for desk days",
+    summary: "Short movement breaks for your neck, shoulders, back and hips while you work.",
+    intro: [
+      "Desk work keeps your neck, shoulders, back and hips in the same position for a long time. OSHA recommends " +
+      "short breaks from computer work, and suggests standing, stretching or walking during them. In NIOSH research, " +
+      "adding a five-minute break each hour to the usual work breaks lowered aches and eye strain.",
+      "Research on stretching at work itself is promising but mixed, so think of these as comfort and movement " +
+      "breaks, not a proven way to prevent injury. They work alongside a comfortable workstation and changing " +
+      "position often, not instead of them.",
+    ],
+    stretches: [
+      { name: "Neck side stretch",
+        steps: ["Sit tall with both feet supported, shoulders relaxed.",
+          "Slowly tip your right ear toward your right shoulder without lifting the shoulder.",
+          "Stop at a mild stretch on the left side of your neck and hold for 15 to 20 seconds.",
+          "Come back to center, then switch sides."],
+        easier: "If your neck is very stiff, just turn your head gently right and left instead.",
+        safety: "Don't pull on your head. Stop if you feel pain, tingling or dizziness." },
+      { name: "Chest opener",
+        steps: ["Sit or stand tall with your hands on your hips or resting at your sides.",
+          "Gently draw your shoulders back and lift your breastbone a little.",
+          "Hold for 15 to 20 seconds and breathe normally."],
+        easier: "Make the movement smaller.",
+        safety: "Don't arch your lower back. If the front of a shoulder hurts, ease off or skip it." },
+      { name: "Seated upper-back turn",
+        steps: ["Sit near the front of a sturdy chair with both feet flat.", "Cross your arms over your chest.",
+          "Keep your hips facing forward and slowly turn your rib cage to the right.",
+          "Come back to center, then turn left. Do 5 slow turns each way."],
+        easier: "Keep the turn small.",
+        safety: "No forcing or quick twisting." },
+      { name: "Supported hip flexor stretch",
+        steps: ["Stand behind a sturdy chair and hold it.", "Step your right foot back, both feet pointing forward.",
+          "Soften both knees, gently tuck your pelvis, and shift forward a little until you feel a mild stretch at the front of the right hip.",
+          "Hold for 15 to 20 seconds, then switch sides."],
+        easier: "Take a shorter step back.",
+        safety: "Stay tall. Stop if your hip or back hurts." },
+    ],
+    howTo: "Mix these into short breaks along with standing up and walking around. Long stretches of sitting still " +
+      "call for several short movement breaks.",
+    stop: "Stop if a stretch causes pain, tingling, numbness, dizziness or symptoms that build. Check with your care " +
+      "team if discomfort keeps coming back, gets worse, or followed an injury.",
+    pro: "Ongoing neck, back, arm or hand symptoms deserve attention, not just stretch breaks. Talk with your care team " +
+      "about them.",
+    tip: "Set one reminder for the next hour of work. When it goes off, stand up, look away from the screen, and spend " +
+      "3 to 5 minutes walking or doing two of these stretches. OSHA suggests a five-minute break from computer work every hour.",
+    demos: [STRETCH_SRC.mayoDesk],
+    sources: [STRETCH_SRC.osha, STRETCH_SRC.nioshHome, STRETCH_SRC.nioshBreaks, STRETCH_SRC.mayoDesk] },
+
+  { slug: "stretch-exercise", minutes: 4,
+    title: "Stretching before and after exercise",
+    summary: "Warm up by moving, and save the longer stretches for afterward.",
+    intro: [
+      "Before and after exercise, stretching does different jobs. Before, the goal is to warm up and get ready for " +
+      "the movements you're about to do. After, when your muscles are already warm, gentle held stretches can work " +
+      "on flexibility, if you enjoy them. Neither needs to be intense.",
+      "Holding long stretches as your whole warm-up isn't recommended, and long holds right before a hard effort can " +
+      "briefly reduce performance. Easy, moving warm-ups are a good default before walking, cycling, strength work " +
+      "or similar activity.",
+    ],
+    stretches: [
+      { name: "Before: Easy march",
+        steps: ["Stand near something to hold.", "March at a comfortable pace for 60 seconds."],
+        easier: "A seated march is fine.",
+        safety: "Stop if you feel dizzy or unsteady." },
+      { name: "Before: Supported leg swings",
+        steps: ["Hold a wall or chair and stand tall.",
+          "Gently swing one leg forward and back through a small, comfortable range.",
+          "Do 6 to 10 swings, then switch sides."],
+        easier: "Make the swing very small.",
+        safety: "Don't kick high or let momentum take over." },
+      { name: "Before: Arm circles",
+        steps: ["Make small arm circles, 5 to 10 in each direction.",
+          "Make them bigger only if your shoulders feel comfortable."],
+        easier: "Bend your elbows or keep the circles small.",
+        safety: "Don't force your arms overhead." },
+      { ...WALL_CALF, name: "After: Wall calf stretch" },
+      { name: "After: Standing thigh stretch",
+        steps: ["Hold a wall or chair.", "Bend one knee and bring that heel toward your buttock.",
+          "Hold your ankle only if you can reach it without twisting. Keep your knees close together and your back tall.",
+          "Hold for 20 to 30 seconds, then switch sides."],
+        easier: "If reaching your ankle is hard, skip this one rather than forcing it, or ask your care team for an easier option.",
+        safety: "Don't arch or twist your back." },
+    ],
+    howTo: "Stretching after a workout isn't a way to prevent next-day soreness. A Cochrane review found that " +
+      "stretching before or after exercise made little or no real difference to soreness afterward. Do it because it " +
+      "feels good and helps your flexibility over time.",
+    stop: "Don't bounce into a stretch. If a warm-up movement makes you feel less steady or hurts a joint, make it " +
+      "smaller or leave it out. Pain is a signal to back off.",
+    pro: "If you're returning to exercise after an injury or surgery, follow the warm-up and movement plan your " +
+      "clinician gave you rather than a general routine like this one.",
+    tip: "Before your next walk, swap a long cold stretch for one minute of easy marching and a few gentle leg swings.",
+    demos: [STRETCH_SRC.mayoBasic, STRETCH_SRC.aaosKnee],
+    sources: [STRETCH_SRC.mayoFlex, STRETCH_SRC.mayoBasic, STRETCH_SRC.cochrane, STRETCH_SRC.aaosKnee] },
+
+  { slug: "stretch-knees-hips", minutes: 5,
+    title: "Gentle movement for stiff knees and hips",
+    summary: "Careful, chair-supported movements, and when to talk with your care team instead.",
+    intro: [
+      "Sore or stiff knees and hips call for a careful approach. Gentle movement may be fine, but soreness has many " +
+      "possible causes, and a general routine can't find the cause or treat an injury. If you have a bone or joint " +
+      "problem that could get worse with more activity, check with your care team first.",
+      "For people diagnosed with knee or hip osteoarthritis, exercise is strongly recommended by the American " +
+      "College of Rheumatology and the Arthritis Foundation, with the type chosen for each person. That doesn't mean " +
+      "one routine is right for everyone with sore joints.",
+      "AAOS publishes knee and hip exercise programs, but they're meant for rehabilitation with a professional " +
+      "guiding you. The movements below are gentle, general ones, not a rehab plan.",
+    ],
+    stretches: [
+      { name: "Seated knee straightening",
+        steps: ["Sit tall in a sturdy chair with both feet on the floor.",
+          "Slowly straighten one knee, only as far as is comfortable.",
+          "Pause for about 2 seconds, then lower it with control.",
+          "Do 5 to 8 on each side."],
+        easier: "Stop earlier if straightening fully feels tight.",
+        safety: "Don't swing the leg or force it higher." },
+      { name: "Seated march",
+        steps: ["Sit tall in the chair.", "Lift one foot an inch or two, lower it, then switch sides.",
+          "Keep your hips level, and use your hands on the chair for support if you like.",
+          "Do 6 to 10 on each side."],
+        easier: "Make the lift smaller if your hip feels stiff.",
+        safety: "Keep your body steady. Stop if it hurts." },
+      { name: "Supported side-to-side shift",
+        steps: ["Stand behind a sturdy chair with both hands on it, feet about hip-width apart.",
+          "Slowly shift a little of your weight toward your right foot, come back to center, then shift left.",
+          "Keep both feet on the floor. Do 6 to 10 shifts each way."],
+        easier: "Make the shift very small, or skip this one if standing feels uncertain.",
+        safety: "Stop if you feel unsteady. This is gentle practice moving and balancing, not a treatment for knee or hip pain." },
+      { ...WALL_CALF, safety: "Keep the stretch shallow if your knee or ankle feels sensitive. No bouncing." },
+    ],
+    howTo: "None of these should cause sharp or building pain.",
+    stop: "Stop if it hurts or you feel unsteady. Check with your care team before trying this if you have a diagnosed " +
+      "joint condition, a recent injury or surgery, or a real change in your pain or how you walk.",
+    pro: "Get medical help right away after a serious fall or injury, or if you can't move your hip or put weight on " +
+      "your leg. Symptoms that keep going deserve a professional look rather than more stretching on your own.",
+    tip: "After sitting for a while, try five slow knee straightenings on each side in a pain-free range. Notice " +
+      "whether the joint feels the same, better or worse afterward. If it feels worse, stop and mention it to your care team.",
+    demos: [STRETCH_SRC.aaosKnee, STRETCH_SRC.aaosHip],
+    sources: [STRETCH_SRC.niddkActive, STRETCH_SRC.acr, STRETCH_SRC.aaosKnee, STRETCH_SRC.aaosHip, STRETCH_SRC.medlineHip, STRETCH_SRC.mayoBasic] },
+];
