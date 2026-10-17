@@ -2,10 +2,10 @@
 // It caches only the app's own files. Supabase requests (sign-in and test-account sync) go to another origin, so
 // they pass straight through and are never cached. TODO(HIPAA): keep it that way for any patient-data API.
 // Bump VERSION whenever any app file changes, so phones pick up the new version.
-const VERSION = "fortino-v22";
+const VERSION = "fortino-v23";
 const SHELL = [
   "./", "./index.html", "./styles.css", "./app.js", "./manifest.json",
-  "./supabase-config.js", "./vendor/supabase.js", "./library.js", "./stretch-art.js", "./icons.js",
+  "./supabase-config.js", "./vendor/supabase.js", "./library.js", "./stretch-art.js", "./icons.js", "./recipes.js",
   "./icons/icon.svg", "./icons/icon-192.png", "./icons/icon-512.png",
   "./icons/icon-maskable-512.png", "./icons/apple-touch-icon.png",
   "./images/article-beach-walk.jpg",

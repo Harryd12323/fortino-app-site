@@ -54,7 +54,33 @@ const KEYS = { habits: "fortino.habits", checkins: "fortino.checkins", waist: "f
                goal: "fortino.goal", workoutTimes: "fortino.workoutTimes",   // these two: this device only, not synced
                journal: "fortino.journal",   // this device only, never synced (sensitive free text; see Journal)
                moveQuiz: "fortino.moveQuiz",
+               tierInterest: "fortino.tierInterest", myWorkout: "fortino.myWorkout",   // this device only, not synced
+               mealPrefs: "fortino.mealPrefs", mealPlan: "fortino.mealPlan",            // this device only, not synced
                oldWeights: "fortino.weights" };   // oldWeights: left by the earlier version; only ever deleted
+
+// ---------- App membership tiers (app-only; separate from the physician-care membership) ----------
+// TODO(confirm): names, prices and benefits are placeholders pending practice approval.
+// TODO(payments): nothing is charged. "Join" saves interest only (KEYS.tierInterest). What's unlocked comes ONLY from
+// the hidden demo switch under More (DEMO_KEYS.tier), so the practice can preview each tier.
+// Money stays low-pressure: no paywall pop-ups, nothing about paying on Today, at most one small "Available with
+// membership" note where a locked feature appears, and the free app must feel complete without any of this.
+const TIERS = [
+  { level: 0, name: "Free", price: "$0" },
+  { level: 1, name: "Essentials", price: "$15", perks: ["<strong>Custom workouts</strong>: put sessions together in your own order",
+    "<strong>Recipe library</strong>: simple, budget-friendly, high-protein recipes", "<strong>Quick meals</strong> ready in 20 minutes or less"] },
+  { level: 2, name: "Meal Planner", price: "$30", perks: ["<strong>Everything in Essentials</strong>",
+    "<strong>Weekly meal plans</strong> built around your grocery budget",
+    "<strong>Shopping list</strong> grouped by store section, with estimated prices"] },
+  { level: 3, name: "Plus", price: "$60", perks: ["<strong>Everything in Meal Planner</strong>",
+    "<strong>Store-linked shopping lists</strong> (coming soon)",
+    "<strong>Extra support from the practice</strong> (details to come)"] },
+];
+// Demo settings live outside KEYS, so "Delete everything" and signing out don't reset a demo in progress.
+const DEMO_KEYS = { shown: "fortino.demo", tier: "fortino.tierPreview" };
+const tierLevel = () => { try { return Number(localStorage.getItem(DEMO_KEYS.tier)) || 0; } catch { return 0; } };
+const hasTier = (level) => tierLevel() >= level;
+const LOCKED_NOTE = (level) => `<p class="locked-note">${icon("lock")}<span>Available with membership
+  (<a href="#plan">${TIERS[level].name}</a>)</span></p>`;
 
 // ---------- Account & sync (TEST BUILD, see TODO(auth) above) ----------
 // localStorage stays the working copy, so the app works offline. When signed in, every save() is also upserted to
@@ -152,7 +178,8 @@ if (sb) {
 }
 
 // ---------- Router ----------
-// #today (default) #journal #progress #plan #care #care/book #learn #learn/move #learn/mind #learn/stretch #learn/<slug> #quiz
+// #today (default) #journal #progress #plan #care #care/book #learn #learn/move #learn/mind #learn/stretch #learn/meals
+// #learn/<slug> (guides, stretches and recipes) #quiz
 // #more #privacy
 const ALIASES = { home: "today", membership: "plan", book: "care", menu: "more" };   // links from older versions
 const TAB_FOR = { today: "today", quiz: "today", journal: "today", progress: "progress", plan: "plan", care: "care",
@@ -161,10 +188,10 @@ const TAB_FOR = { today: "today", quiz: "today", journal: "today", progress: "pr
 function route() {
   let [name, arg] = (location.hash.slice(1) || "today").split("/");
   if (ALIASES[name]) { if (name === "book") arg = "book"; name = ALIASES[name]; }
-  const sub = name === "learn" && ["move", "mind", "stretch"].includes(arg) ? arg : "articles";   // Learn sub-tabs
+  const sub = name === "learn" && ["move", "mind", "stretch", "meals"].includes(arg) ? arg : "articles";   // Learn sub-tabs
   let view = name === "learn" && arg && sub === "articles" ? "article" : name;
   if (!$(`[data-view="${view}"]`)) view = "today";
-  if (view === "article" && !renderArticle(arg)) { location.replace("#learn"); return; }
+  if (view === "article" && !renderArticle(arg)) { location.replace(arg.startsWith("recipe-") ? "#learn/meals" : "#learn"); return; }
 
   $$(".view").forEach((v) => v.classList.toggle("active", v.dataset.view === view));
   $$(".tabbar a").forEach((a) => {
@@ -174,8 +201,9 @@ function route() {
   if (view === "today") renderToday();
   if (view === "journal") renderJournal();
   if (view === "progress") renderProgress();
-  if (view === "more") renderInstallState();
-  if (view === "learn") { showLearnPanel(sub); renderStart(); }
+  if (view === "more") { renderInstallState(); renderTierPreview(); }
+  if (view === "plan") renderTiers();
+  if (view === "learn") { showLearnPanel(sub); renderStart(); renderLearnTiered(); }
   $("#main").focus({ preventScroll: true });
   if (view === "care" && arg === "book") $("#book").scrollIntoView();
   else window.scrollTo(0, 0);
@@ -626,7 +654,7 @@ winForm.addEventListener("submit", (e) => {
 
 $("#clear-all").addEventListener("click", async () => {
   const scope = user ? "on this device and in your account" : "on this device";
-  if (!confirm(`Delete everything this app saved ${scope} (habits, check-ins, waist entries, wins, journal)? This can't be undone.`)) return;
+  if (!confirm(`Delete everything this app saved ${scope} (habits, check-ins, waist entries, wins, journal, meal plans, saved workouts)? This can't be undone.`)) return;
   if (user) {
     const { error } = await sb.from("user_data").delete().eq("user_id", user.id);
     if (error) { toast("Couldn't delete your account data. Check your connection and try again."); return; }
@@ -958,6 +986,7 @@ function renderArticle(slug) {
   $("#article-back").href = "#learn";
   $("#article-back-label").textContent = "All guides";
   if (STRETCH_ARTICLES.some((x) => x.slug === slug)) return renderStretchArticle(slug);
+  if (slug.startsWith("recipe-")) return renderRecipe(slug);
   const g = GUIDES.find((x) => x.slug === slug);
   if (!g) return false;
   const sources = g.sources.length
@@ -1107,6 +1136,440 @@ function renderStretchArticle(slug) {
 renderMove();
 renderMind();
 renderStretch();
+// Parts of Learn that depend on the previewed membership tier. Re-run when the demo switch changes.
+function renderLearnTiered() { renderMyWorkout(); renderRecipes(); renderPlanner(); }
+
+// ---------- LEARN → Move: custom workout (Essentials tier) ----------
+// Up to 3 of the existing sessions in your own order, with a minute's rest between them, run in the step player.
+const MY_WORKOUT_MAX = 3, BETWEEN_SEC = 60;
+function renderMyWorkout() {
+  const box = $("#my-workout");
+  if (!hasTier(1)) {
+    box.innerHTML = `<section class="card"><h2 class="h3">My workout</h2>
+      <p class="fine">Put sessions together in your own order.</p>${LOCKED_NOTE(1)}</section>`;
+    return;
+  }
+  const ids = load(KEYS.myWorkout, []).filter((id) => MOVE_SESSIONS.some((m) => m.id === id));
+  const picked = ids.map((id) => MOVE_SESSIONS.find((m) => m.id === id));
+  const total = picked.reduce((a, m) => a + m.min, 0) + Math.max(0, picked.length - 1) * (BETWEEN_SEC / 60);
+  box.innerHTML = `<section class="card my-workout" aria-labelledby="my-workout-title">
+      <h2 class="h3" id="my-workout-title">My workout</h2>
+      <p class="fine">Put up to ${MY_WORKOUT_MAX} sessions together in your own order, with a minute's rest between them.
+        New to exercise? Start with one and build up gradually.</p>
+      <ol class="mw-list"></ol>
+      <div class="mw-add" ${ids.length >= MY_WORKOUT_MAX ? "hidden" : ""}>
+        <label class="field">Add a session<select name="mw-add"><option value="">Choose a session</option></select></label>
+      </div>
+      <button type="button" class="btn btn-primary btn-block" data-act="start" ${ids.length ? "" : "hidden"}></button>
+      <p class="demo-note">Saved on this device only.</p>
+    </section>`;
+  const setIds = (next, focusSel) => { save(KEYS.myWorkout, next); renderMyWorkout(); if (focusSel) $(focusSel, box)?.focus(); };
+  picked.forEach((m, i) => {
+    const li = document.createElement("li");
+    li.innerHTML = `<span><strong></strong><small></small></span>
+      <button type="button" class="swap-btn" data-d="-1">Up</button><button type="button" class="swap-btn" data-d="1">Down</button>
+      <button type="button" class="swap-btn" data-d="0">Remove</button>`;
+    $("strong", li).textContent = m.name; $("small", li).textContent = `${m.min} min · ${m.equipment}`;
+    $$("button", li).forEach((b) => {
+      const d = Number(b.dataset.d);
+      b.setAttribute("aria-label", `${b.textContent}: ${m.name}`);
+      if ((d === -1 && i === 0) || (d === 1 && i === ids.length - 1)) b.disabled = true;
+      b.addEventListener("click", () => {
+        const next = [...ids];
+        if (d === 0) { next.splice(i, 1); setIds(next, "select, [data-act=start]"); toast(`Removed ${m.name}.`); return; }
+        [next[i], next[i + d]] = [next[i + d], next[i]];
+        setIds(next); $$(".mw-list li", box)[i + d].querySelector(`[data-d="${d}"]:not(:disabled)`)?.focus();
+      });
+    });
+    $(".mw-list", box).append(li);
+  });
+  const sel = $("select", box);
+  MOVE_SESSIONS.filter((m) => !ids.includes(m.id)).forEach((m) => {
+    const o = document.createElement("option"); o.value = m.id; o.textContent = `${m.name} (${m.min} min)`; sel.append(o);
+  });
+  sel.addEventListener("change", () => { if (sel.value) setIds([...ids, sel.value], "select, [data-act=start]"); });
+  const start = $('[data-act="start"]', box);
+  start.textContent = `Start my workout (${Math.round(total)} min)`;
+  start.addEventListener("click", () => {
+    const steps = picked.flatMap((m, i) => (i ? [step(BETWEEN_SEC, "Rest before the next session", `Next: ${m.name}. Sip some water if you like.`)] : [])
+      .concat(m.steps));
+    openPlayer({ name: "My workout", timed: true, steps,
+      safety: "Stop for chest pain, fainting, unusual shortness of breath, or sharp pain.", opener: start });
+  });
+}
+
+// ---------- LEARN → Meals: recipes (content in recipes.js; TODO(confirm) review by Dr. Fortino) ----------
+// Free: the sample recipes. Essentials ($15) and up: every recipe and the Quick filter. Meal Planner ($30): the planner.
+// Protein and cost are calculated from ING, never typed in. Everything from recipes.js is set with textContent.
+const recipeProtein = (r) => Math.round(r.ing.reduce((a, [id, q]) => a + q * ING[id].protein, 0));
+const recipeCost = (r) => r.ing.reduce((a, [id, q]) => a + (q / ING[id].per) * ING[id].price, 0);
+const money = (n) => `$${n.toFixed(2)}`;
+const isQuick = (r) => r.minutes <= 20;
+const canSeeRecipe = (r) => r.sample || hasTier(1);
+const MEAL_NAMES = { breakfast: "Breakfast", lunch: "Lunch", dinner: "Dinner" };
+
+// Kitchen amounts: nearest ¼ or ⅓, small cup amounts in tablespoons, and whole eggs, tortillas and slices.
+const FRACS = [[0, ""], [1 / 4, "¼"], [1 / 3, "⅓"], [1 / 2, "½"], [2 / 3, "⅔"], [3 / 4, "¾"], [1, ""]];
+const WHOLE_UNITS = ["egg", "whole-wheat tortilla", "slice"];
+const ITEM_UNITS = ["egg", "onion", "bell pepper", "banana", "carrot", "cucumber", "whole-wheat tortilla"];   // the unit names the food
+function fmtAmount(q, unit) {
+  if (unit.startsWith("cup") && q < 0.25) { q = Math.max(1, Math.round(q * 16)); unit = "tbsp"; }
+  if (WHOLE_UNITS.includes(unit)) q = Math.max(1, Math.round(q));
+  let whole = Math.floor(q), [f, sym] = FRACS.reduce((best, x) => (Math.abs(q - whole - x[0]) < Math.abs(q - whole - best[0]) ? x : best));
+  if (f === 1) { whole += 1; sym = ""; }
+  if (!whole && !sym) sym = "¼";   // never "0"
+  const n = whole + f % 1;
+  // Plural on the noun: "cups dry", but "bell peppers"; oz, lb and tbsp don't change.
+  const words = unit.split(" "), k = words[0] === "cup" ? 0 : words.length - 1;
+  if (n > 1 && !["oz", "lb", "tbsp"].includes(unit)) words[k] += words[k].endsWith("x") ? "es" : "s";
+  const plural = words.join(" ");
+  return `${whole || ""}${sym} ${plural}`.trim();
+}
+const ingLine = ([id, q, note], servings) => {
+  const i = ING[id];
+  const what = ITEM_UNITS.includes(i.unit) ? "" : ` ${i.short || i.name.charAt(0).toLowerCase() + i.name.slice(1)}`;
+  return `${fmtAmount(q * servings, i.unit)}${what}${note ? `, ${note}` : ""}`;
+};
+
+let recipeFilter = "All";
+function renderRecipes() {
+  const all = hasTier(1);
+  const filters = ["All", "Breakfast", "Lunch", "Dinner", "Quick (20 min or less)"];
+  const chips = $("#recipe-filters");
+  chips.replaceChildren();
+  chips.hidden = !all;
+  if (!all) recipeFilter = "All";
+  filters.forEach((f) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.textContent = f; b.setAttribute("aria-pressed", f === recipeFilter);
+    b.addEventListener("click", () => { recipeFilter = f; renderRecipes(); });
+    chips.append(b);
+  });
+  $("#recipes-title").textContent = all ? "Recipes" : "A few recipes to try";
+  const shown = RECIPES.filter(canSeeRecipe).filter((r) => recipeFilter === "All"
+    || (recipeFilter.startsWith("Quick") ? isQuick(r) : MEAL_NAMES[r.meal] === recipeFilter));
+  const ul = $("#recipe-list");
+  ul.replaceChildren();
+  shown.forEach((r) => {
+    const li = document.createElement("li");
+    li.innerHTML = `<a class="card stretch-card" href="#learn/${r.slug}"><small></small><strong></strong><span></span></a>`;
+    $("small", li).textContent = `${MEAL_NAMES[r.meal]} · ${r.minutes} min${isQuick(r) ? " · Quick" : ""} · Draft`;
+    $("strong", li).textContent = r.name;
+    $("span", li).textContent = `About ${recipeProtein(r)} g protein · about ${money(recipeCost(r))} a serving (estimate)`;
+    ul.append(li);
+  });
+  // The one small note for free users. Never a pop-up, never on Today.
+  $("#recipes-locked").innerHTML = all ? "" : LOCKED_NOTE(1).replace("Available with membership",
+    "More recipes, quick meals and a budget meal planner are available with membership");
+}
+
+let recipeServings = null;   // set from the planner's household size, or 2
+function renderRecipe(slug) {
+  const r = RECIPES.find((x) => x.slug === slug);
+  if (!r || !canSeeRecipe(r)) return false;
+  const n = recipeServings || load(KEYS.mealPrefs, {}).people || 2;
+  $("#article-back").href = "#learn/meals";
+  $("#article-back-label").textContent = "All recipes";
+  $("#article-body").innerHTML = `<p class="eyebrow"></p><h1></h1>
+    <p class="draft-flag">Draft · awaiting review by Dr. Fortino</p>
+    <p class="recipe-facts"></p>
+    <div class="servings" role="group" aria-label="Servings">
+      <button type="button" class="icon-btn" data-step="-1" aria-label="Fewer servings">&minus;</button>
+      <span aria-live="polite"></span>
+      <button type="button" class="icon-btn" data-step="1" aria-label="More servings">${icon("plus")}</button>
+    </div>
+    <h2>Ingredients</h2><ul class="recipe-ing"></ul>
+    <p class="fine pantry-line"></p>
+    <h2>Steps</h2><ol class="howto recipe-steps"></ol>
+    <p class="disclaimer">General information, not medical advice. Protein is approximate, calculated from typical
+      values. Costs are estimates from average US prices; yours will differ. Recipes aren't checked for allergies, so
+      always read labels.</p>`;
+  $("#article-body .eyebrow").textContent = `${MEAL_NAMES[r.meal]} · ${r.minutes} min${isQuick(r) ? " · Quick meal" : ""}`;
+  $("#article-body h1").textContent = r.name;
+  $("#article-body .recipe-facts").textContent =
+    `About ${recipeProtein(r)} g protein per serving · estimated ${money(recipeCost(r))} per serving`;
+  $("#article-body .servings span").textContent = `${n} ${n === 1 ? "serving" : "servings"}`;
+  r.ing.forEach((x) => { const li = document.createElement("li"); li.textContent = ingLine(x, n); $("#article-body .recipe-ing").append(li); });
+  $("#article-body .pantry-line").textContent = r.pantry.length ? `From the pantry: ${r.pantry.join("; ")}.` : "";
+  r.steps.forEach((t) => { const li = document.createElement("li"); li.textContent = t; $("#article-body .recipe-steps").append(li); });
+  $$("#article-body .servings button").forEach((b) => {
+    b.disabled = (n === 1 && b.dataset.step === "-1") || (n === 12 && b.dataset.step === "1");
+    b.addEventListener("click", () => {
+      recipeServings = n + Number(b.dataset.step);
+      renderRecipe(slug);
+      $(`#article-body .servings [data-step="${b.dataset.step}"]`).focus();
+    });
+  });
+  return true;
+}
+
+// ---------- LEARN → Meals: budget meal planner (Meal Planner tier, $30) ----------
+// Builds 7 days × breakfast, lunch, dinner from RECIPES only (no AI), so every meal is one Dr. Fortino can review.
+// Saved on this device only (KEYS.mealPrefs, KEYS.mealPlan; never synced). Prices are ESTIMATES (see recipes.js).
+// No calorie numbers or targets anywhere in the planner.
+const PLAN_MEALS = ["breakfast", "lunch", "dinner"];
+const TIME_CHOICES = [[20, "20 min or less"], [30, "30 min or less"], [999, "Any"]];
+
+function seeded(seed) {   // small deterministic random (mulberry32), so "Shuffle" is repeatable from the saved seed
+  let a = seed >>> 0;
+  return () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
+const skipWords = (prefs) => (prefs.other || "").toLowerCase().split(",").map((w) => w.trim()).filter((w) => w.length >= 3);
+const recipeText = (r) => [r.name, ...r.ing.map(([id]) => `${ING[id].name} ${ING[id].short || ""}`)].join(" ").toLowerCase();
+function eligible(prefs, meal) {
+  const skip = DISLIKES.filter((d) => (prefs.dislikes || []).includes(d.label));
+  const ids = skip.flatMap((d) => d.ing || []), tags = skip.map((d) => d.tag).filter(Boolean), words = skipWords(prefs);
+  return RECIPES.filter((r) => r.meal === meal && r.minutes <= prefs.time
+    && !r.ing.some(([id]) => ids.includes(id)) && !(r.tags || []).some((t) => tags.includes(t))
+    && !words.some((w) => recipeText(r).includes(w)))
+    .sort((a, b) => recipeCost(a) - recipeCost(b));
+}
+
+// Shopping list for a plan: amounts × household, rounded up to what you'd actually buy.
+function buildList(days, people) {
+  const need = {}, pantry = new Set();
+  days.forEach((d) => PLAN_MEALS.forEach((m) => {
+    const r = RECIPES.find((x) => x.slug === d[m]);
+    r.ing.forEach(([id, q]) => { need[id] = (need[id] || 0) + q * people; });
+    r.pantry.forEach((p) => pantry.add(p));
+  }));
+  let total = 0, used = 0;
+  const items = Object.entries(need).map(([id, q]) => {
+    const i = ING[id];
+    let buy, cost;
+    if (i.loose) {
+      const amt = i.unit === "lb" ? Math.ceil(q * 4) / 4 : Math.ceil(q - 1e-9);
+      cost = amt * i.price;
+      buy = i.unit === "lb" ? `about ${fmtAmount(amt, "lb")}` : fmtAmount(amt, i.unit);
+    } else {
+      const packs = Math.max(1, Math.ceil(q / i.per - 1e-9));
+      cost = packs * i.price;
+      buy = packs === 1 ? i.buy : `${packs} × ${i.buy}`;
+    }
+    total += cost; used += (q / i.per) * i.price;
+    return { id, name: i.name, section: i.section, buy, cost, qty: q, unit: i.unit };
+  });
+  const sections = STORE_SECTIONS.map((name) => ({ name, items: items.filter((x) => x.section === name)
+    .sort((a, b) => a.name.localeCompare(b.name)) })).filter((x) => x.items.length);
+  return { sections, items, total, used, pantry: PANTRY.filter((p) => pantry.has(p)) };
+}
+
+// Random search over small rotations (a few breakfasts, lunches and dinners repeated through the week, which is
+// cheaper and easier than 21 different meals). Prefers the most varied week within budget; if none fits, the most
+// varied week within a few dollars of the cheapest, so an over-budget week isn't the same breakfast seven times.
+function generatePlan(prefs, seed) {
+  const pools = Object.fromEntries(PLAN_MEALS.map((m) => [m, eligible(prefs, m)]));
+  const empty = PLAN_MEALS.find((m) => !pools[m].length);
+  if (empty) return { error: `No ${empty} recipes match these choices. Try a longer cooking time or fewer foods to skip.` };
+  const rand = seeded(seed), ranges = { breakfast: [1, 3], lunch: [2, 4], dinner: [3, 5] };
+  const trials = [];
+  for (let trial = 0; trial < 400; trial++) {
+    const picks = Object.fromEntries(PLAN_MEALS.map((m) => {
+      const pool = [...pools[m]];
+      for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
+      const [lo, hi] = ranges[m], k = Math.min(pool.length, lo + Math.floor(rand() * (hi - lo + 1)));
+      return [m, pool.slice(0, k)];
+    }));
+    const days = Array.from({ length: 7 }, (_, d) => Object.fromEntries(PLAN_MEALS.map((m) => [m, picks[m][d % picks[m].length].slug])));
+    trials.push({ days, cost: buildList(days, prefs.people).total, variety: PLAN_MEALS.reduce((a, m) => a + picks[m].length, 0) });
+  }
+  const cheapest = Math.min(...trials.map((t) => t.cost));
+  const limit = cheapest <= prefs.budget ? prefs.budget : cheapest * 1.05 + 2;
+  const best = trials.filter((t) => t.cost <= limit).sort((a, b) => b.variety - a.variety || a.cost - b.cost)[0];
+  return { days: best.days };
+}
+
+// TODO(instacart): hook for store-linked lists (Plus tier, "coming soon"). Instacart's Developer Platform can turn
+// line items into a shopping-list page, but the API key must stay on a server (e.g. a Supabase Edge Function), never
+// in this app. Send ingredient names and amounts only: no names, emails or health details. Not built yet.
+function shoppingListForExport(plan) {
+  return buildList(plan.days, plan.prefs.people).items
+    .map((x) => ({ name: x.name, quantity: Math.round(x.qty * 100) / 100, unit: x.unit }));
+}
+
+let plannerEditing = false;
+function renderPlanner() {
+  const box = $("#planner");
+  if (!hasTier(1)) { box.replaceChildren(); return; }   // free users: the single note under the recipes covers it
+  if (!hasTier(2)) {
+    box.innerHTML = `<section class="card"><h2 class="h3">Budget meal planner</h2>
+      <p class="fine">A week of high-protein meals built around your grocery budget, with a shopping list.</p>${LOCKED_NOTE(2)}</section>`;
+    return;
+  }
+  const plan = load(KEYS.mealPlan, null);
+  if (!plan || plannerEditing) renderPlannerForm(box, plan); else renderPlanView(box, plan);
+}
+
+function renderPlannerForm(box, plan) {
+  const p = { budget: "", people: 2, time: 30, dislikes: [], other: "", ...load(KEYS.mealPrefs, {}) };
+  box.innerHTML = `<form class="card planner-form" novalidate aria-labelledby="planner-title">
+      <h2 class="h3" id="planner-title">Plan a week of meals</h2>
+      <p class="fine">Tell us a little and we'll build 7 days of high-protein meals from our recipes, plus a shopping
+        list with estimated prices.</p>
+      <label class="field">Weekly grocery budget ($)
+        <input type="number" name="budget" inputmode="decimal" min="10" max="1000" step="1" required placeholder="e.g. 75">
+      </label>
+      <label class="field">People in your household
+        <select name="people">${[1, 2, 3, 4, 5, 6, 7, 8].map((n) => `<option>${n}</option>`).join("")}</select>
+      </label>
+      <fieldset class="field"><legend>Cooking time per meal</legend>
+        <div class="seg seg-3">${TIME_CHOICES.map(([v, l]) => `<label><input type="radio" name="time" value="${v}"><span>${l}</span></label>`).join("")}</div>
+      </fieldset>
+      <fieldset class="field"><legend>Foods you'd rather skip</legend>
+        <div class="chips chips-wrap">${DISLIKES.map((d, i) => `<label><input type="checkbox" name="dislike" value="${i}"><span></span></label>`).join("")}</div>
+      </fieldset>
+      <label class="field">Anything else? <small class="muted-line">Separate with commas</small>
+        <input type="text" name="other" maxlength="120" autocomplete="off" placeholder="e.g. tuna, cabbage">
+      </label>
+      <p class="fine">This is for preferences only. It doesn't check for allergies, so always read labels.</p>
+      <p class="form-error" role="alert"></p>
+      <button type="submit" class="btn btn-primary btn-block">Build my week</button>
+      ${plan ? '<button type="button" class="link-btn" data-act="cancel">Keep my current plan</button>' : ""}
+      <p class="demo-note">Saved on this device only.</p>
+    </form>`;
+  const f = $("form", box);
+  f.elements.budget.value = p.budget;
+  f.elements.people.value = String(p.people);
+  $$('input[name="time"]', f).forEach((r) => { r.checked = Number(r.value) === p.time; });
+  $$('input[name="dislike"]', f).forEach((c) => {
+    const d = DISLIKES[c.value]; c.nextElementSibling.textContent = d.label; c.checked = p.dislikes.includes(d.label);
+  });
+  f.elements.other.value = p.other;
+  $('[data-act="cancel"]', f)?.addEventListener("click", () => { plannerEditing = false; renderPlanner(); });
+  f.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const budget = Number(f.elements.budget.value);
+    const err = $(".form-error", f);
+    const bad = !(budget >= 10 && budget <= 1000);
+    f.elements.budget.classList.toggle("invalid", bad);
+    if (bad) { err.textContent = "Please enter a weekly budget between $10 and $1,000."; f.elements.budget.focus(); return; }
+    const prefs = { budget, people: Number(f.elements.people.value), time: Number(f.elements.time.value) || 30,
+      dislikes: $$('input[name="dislike"]:checked', f).map((c) => DISLIKES[c.value].label), other: f.elements.other.value.trim() };
+    const seed = Date.now() % 2147483647;
+    const out = generatePlan(prefs, seed);
+    if (out.error) { err.textContent = out.error; return; }
+    save(KEYS.mealPrefs, prefs);
+    save(KEYS.mealPlan, { created: todayISO(), prefs, seed, days: out.days, got: [] });
+    plannerEditing = false; recipeServings = null;
+    renderPlanner();
+    $("#plan-week-title").focus();
+    toast("Your week is ready. Saved on this device.");
+  });
+}
+
+function renderPlanView(box, plan) {
+  const list = buildList(plan.days, plan.prefs.people);
+  const over = list.total - plan.prefs.budget;
+  const start = new Date(`${plan.created}T12:00:00`);
+  const unmatched = skipWords(plan.prefs).filter((w) => !RECIPES.some((r) => recipeText(r).includes(w)));
+  box.innerHTML = `<section class="card planner" aria-labelledby="plan-week-title">
+      <h2 class="h3" id="plan-week-title" tabindex="-1">Your week of meals</h2>
+      <p class="muted-line"></p>
+      <ol class="plan-days"></ol>
+      <div class="plan-actions">
+        <button type="button" class="btn btn-ghost" data-act="shuffle">Shuffle the week</button>
+        <button type="button" class="btn btn-ghost" data-act="edit">Change my answers</button>
+      </div>
+      <p class="fine" data-out="unmatched" hidden></p>
+    </section>
+    <section class="card planner" aria-labelledby="list-title">
+      <h2 class="h3" id="list-title">Shopping list</h2>
+      <div class="budget-line"><p></p><div class="budget-bar" aria-hidden="true"><span></span></div></div>
+      <p class="fine" data-out="over" hidden></p>
+      <p class="estimate-flag">All prices are estimates based on average US supermarket prices. Your store's prices will differ.</p>
+      <div data-out="sections"></div>
+      <h3 class="list-section">Pantry staples <small>(not priced)</small></h3>
+      <ul class="shop-list pantry" data-out="pantry"></ul>
+      <p class="fine" data-out="carry" hidden></p>
+      ${hasTier(3) ? '<button type="button" class="btn btn-ghost btn-block" disabled>Send to a store · coming soon</button>' : ""}
+      <button type="button" class="link-btn danger" data-act="delete">Delete this plan</button>
+      <p class="demo-note">Saved on this device only.</p>
+    </section>`;
+  $(".muted-line", box).textContent = `For ${plan.prefs.people} ${plan.prefs.people === 1 ? "person" : "people"} · `
+    + `budget ${money(plan.prefs.budget)} · started ${fmtDate(plan.created, { weekday: "short", month: "short", day: "numeric" })}`;
+  const days = $(".plan-days", box);
+  plan.days.forEach((d, i) => {
+    const day = new Date(start); day.setDate(start.getDate() + i);
+    const dayName = day.toLocaleDateString([], { weekday: "long" });
+    const li = document.createElement("li");
+    li.innerHTML = `<h3></h3><ul>${PLAN_MEALS.map((m) => `<li><span class="meal-label">${MEAL_NAMES[m]}</span>
+      <a></a><button type="button" class="swap-btn" data-meal="${m}">Swap</button></li>`).join("")}</ul>`;
+    $("h3", li).textContent = dayName;
+    PLAN_MEALS.forEach((m, k) => {
+      const r = RECIPES.find((x) => x.slug === d[m]);
+      const a = $$("a", li)[k]; a.href = `#learn/${r.slug}`; a.textContent = r.name;
+      const b = $$(".swap-btn", li)[k]; b.setAttribute("aria-label", `Swap ${dayName} ${m}`);
+      b.addEventListener("click", () => {
+        const pool = eligible(plan.prefs, m);
+        if (pool.length < 2) { toast(`No other ${m} recipes match your choices.`); return; }
+        d[m] = pool[(pool.findIndex((x) => x.slug === r.slug) + 1) % pool.length].slug;
+        save(KEYS.mealPlan, plan);
+        renderPlanner();
+        $$(`.swap-btn[data-meal="${m}"]`, $("#planner"))[i].focus();
+      });
+    });
+    days.append(li);
+  });
+  if (unmatched.length) {
+    const u = $('[data-out="unmatched"]', box); u.hidden = false;
+    u.textContent = `None of our recipes use ${unmatched.map((w) => `"${w}"`).join(", ")}, so nothing was removed for ${unmatched.length === 1 ? "it" : "them"}.`;
+  }
+
+  $(".budget-line p", box).innerHTML = `Estimated total <strong></strong> of your <span></span> budget`;
+  $(".budget-line strong", box).textContent = money(list.total);
+  $(".budget-line span", box).textContent = money(plan.prefs.budget);
+  $(".budget-bar span", box).style.width = `${Math.min(100, (list.total / plan.prefs.budget) * 100)}%`;
+  $(".budget-bar", box).classList.toggle("over", over > 0);
+  if (over > 0) {
+    const o = $('[data-out="over"]', box); o.hidden = false;
+    o.textContent = `This week comes to about ${money(over)} more than your budget. It's close to the lowest-cost week we could build from `
+      + "these recipes and choices. Allowing more cooking time or fewer foods to skip gives the planner more options.";
+  }
+  const got = new Set(plan.got || []);
+  const secBox = $('[data-out="sections"]', box);
+  list.sections.forEach((sec) => {
+    const h = document.createElement("h3"); h.className = "list-section"; h.textContent = sec.name;
+    const ul = document.createElement("ul"); ul.className = "shop-list";
+    sec.items.forEach((x) => {
+      const li = document.createElement("li");
+      li.innerHTML = `<label class="check"><input type="checkbox"><span><strong></strong> <small></small></span></label><span class="est"></span>`;
+      $("strong", li).textContent = x.name; $("small", li).textContent = x.buy;
+      $(".est", li).textContent = `~${money(x.cost)}`;
+      const cb = $("input", li); cb.checked = got.has(x.id);
+      cb.addEventListener("change", () => {
+        if (cb.checked) got.add(x.id); else got.delete(x.id);
+        plan.got = [...got];
+        save(KEYS.mealPlan, plan);
+      });
+      ul.append(li);
+    });
+    secBox.append(h, ul);
+  });
+  list.pantry.forEach((p) => { const li = document.createElement("li"); li.textContent = p; $('[data-out="pantry"]', box).append(li); });
+  const extra = list.items.filter((x) => !ING[x.id].loose).map((x) => ({ x, left: x.cost - (x.qty / ING[x.id].per) * ING[x.id].price }))
+    .filter((e) => e.left >= 1).sort((a, b) => b.left - a.left).slice(0, 3).map((e) => e.x.name.charAt(0).toLowerCase() + e.x.name.slice(1));
+  if (list.total - list.used >= 3 && extra.length) {
+    const c = $('[data-out="carry"]', box); c.hidden = false;
+    c.textContent = `About ${money(list.used)} of this goes into this week's meals. The rest is what's left in whole packs `
+      + `(for example ${extra.join(", ")}) for next week.`;
+  }
+  $('[data-act="shuffle"]', box).addEventListener("click", () => {
+    const seed = (plan.seed * 16807 + 1) % 2147483647;
+    const out = generatePlan(plan.prefs, seed);
+    if (out.error) { toast(out.error); return; }
+    save(KEYS.mealPlan, { ...plan, seed, days: out.days, got: [] });
+    renderPlanner(); $('#planner [data-act="shuffle"]').focus();
+    toast("New week built. Saved on this device.");
+  });
+  $('[data-act="edit"]', box).addEventListener("click", () => { plannerEditing = true; renderPlanner(); $("#planner input").focus(); });
+  $('[data-act="delete"]', box).addEventListener("click", () => {
+    if (!confirm("Delete this week's meal plan from this device?")) return;
+    localStorage.removeItem(KEYS.mealPlan);
+    renderPlanner(); $("#planner input").focus();
+    toast("Plan deleted.");
+  });
+}
 
 // ---------- Move: "Find your starting point" (questions and rules in library.js; TODO(confirm with Doc)) ----------
 // Saves { age, goal, struggle, equipment, time, careTeam } to KEYS.moveQuiz (synced). Which symptoms someone ticked
@@ -1345,6 +1808,77 @@ $("#player-tick").addEventListener("click", () => {
   $("#player-tick").hidden = true;
   toast(`Movement ticked for today. Saved ${where()}.`);
 });
+
+// ---------- App membership cards (Plan tab) and the hidden demo switch (More) ----------
+function renderTiers() {
+  const interest = load(KEYS.tierInterest, null);
+  const box = $("#tier-cards");
+  box.replaceChildren();
+  TIERS.slice(1).forEach((t) => {
+    const el = document.createElement("div");
+    el.className = "card plan tier";
+    const joined = interest && interest.level === t.level;
+    el.innerHTML = `<div class="plan-head"><h3 class="h3"></h3><span class="tag">Placeholder price</span></div>
+      <p class="price"></p><p class="fine tier-pending">Placeholder price, pending practice approval.</p>
+      <ul class="ticks">${t.perks.map((p) => `<li>${p}</li>`).join("")}</ul>
+      ${tierLevel() === t.level ? '<p class="fine tier-previewing">Previewing this tier on this device.</p>' : ""}
+      <button type="button" class="btn ${joined ? "btn-ghost" : "btn-primary"} btn-block"></button>
+      ${joined ? '<p class="demo-note">Interest saved on this device. Nothing is charged.</p>' : ""}`;
+    $("h3", el).textContent = t.name;
+    $(".price", el).innerHTML = `${t.price}<small>/month</small>`;
+    const btn = $("button", el);
+    btn.textContent = joined ? "Interested · tap to undo" : `Join ${t.name}`;
+    btn.setAttribute("aria-pressed", joined);
+    btn.addEventListener("click", () => {
+      if (joined) { localStorage.removeItem(KEYS.tierInterest); toast("Removed. Nothing was charged."); }
+      else { save(KEYS.tierInterest, { level: t.level, date: todayISO() });
+        toast(`Thanks! We saved your interest in ${t.name} on this device. Nothing is charged.`, 5000); }
+      renderTiers();
+      $$("#tier-cards button")[t.level - 1].focus();
+    });
+    box.append(el);
+  });
+}
+renderTiers();
+
+function renderTierPreview() {
+  let shown = false;
+  try { shown = localStorage.getItem(DEMO_KEYS.shown) === "1"; } catch {}
+  $("#tier-preview").hidden = !shown;
+  const seg = $("#tier-preview-seg");
+  seg.replaceChildren();
+  TIERS.forEach((t) => {
+    const label = document.createElement("label");
+    label.innerHTML = `<input type="radio" name="tier-preview"><span></span>`;
+    $("input", label).value = t.level;
+    $("input", label).checked = t.level === tierLevel();
+    $("span", label).textContent = t.level ? t.price : "Free";
+    $("input", label).setAttribute("aria-label", `${t.name}${t.level ? `, ${t.price} a month` : ""}`);
+    seg.append(label);
+  });
+}
+$("#tier-preview-seg").addEventListener("change", (e) => {
+  try { localStorage.setItem(DEMO_KEYS.tier, e.target.value); } catch {}
+  renderTiers(); renderLearnTiered();
+  toast(`Previewing ${TIERS[tierLevel()].name} on this device.`);
+});
+$("#tier-preview-hide").addEventListener("click", () => {
+  try { localStorage.removeItem(DEMO_KEYS.shown); } catch {}
+  renderTierPreview();
+  toast("Hidden. Tap the More title 5 times to show it again. The previewed tier stays on.");
+});
+// Five quick taps on the "More" title reveal the switch (an installed app has no address bar for a secret link).
+let moreTaps = [];
+$("#more-title").addEventListener("click", () => {
+  const now = Date.now();
+  moreTaps = [...moreTaps.filter((t) => now - t < 3000), now];
+  if (moreTaps.length < 5) return;
+  moreTaps = [];
+  try { localStorage.setItem(DEMO_KEYS.shown, "1"); } catch {}
+  renderTierPreview();
+  $("#tier-preview").scrollIntoView({ behavior: "smooth" });
+});
+renderTierPreview();
 
 // ---------- 5) Membership interest + 6) consult request (nothing is sent) ----------
 $("#join-btn").addEventListener("click", () => {

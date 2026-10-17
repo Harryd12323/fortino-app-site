@@ -26,6 +26,8 @@
       - quiz answers, name and email stay in this browser tab and are dropped when it closes
       - habits, check-ins, waist entries and non-scale wins are saved only on this device (localStorage)
       - journal entries are saved only on this device, ALWAYS, even when signed in (never synced or sent)
+      - meal planner answers and plans, "My workout", and app-membership interest are saved only on this device (never
+        synced or sent); the demo tier switch under More is a device setting
       - the membership and consult forms say plainly that nothing was sent
     Search the code for "TODO(HIPAA)" and "TODO(auth)" for what must change before real patients use it,
     "TODO(confirm)" / "TODO(confirm with Doc)" for facts and health guidance the practice must approve, and
@@ -454,8 +456,20 @@
       <p class="disclaimer">Membership supports your care; it isn't a guarantee of a prescription or of results.
         GLP-1 medications are prescribed only after an evaluation by a licensed physician.</p>
 
-      <p class="disclaimer">Membership supports your care; it isn't a guarantee of a prescription or of results.
-        GLP-1 medications are prescribed only after an evaluation by a licensed physician.</p>
+      <!--
+        APP MEMBERSHIPS: app-only extras, separate from the physician-care membership above.
+        TODO(confirm): names, prices and benefits are placeholders pending practice approval.
+        TODO(payments): "Join" only saves interest on this device (fortino.tierInterest). Nothing is charged and
+        nothing unlocks; unlocking happens only through the hidden preview switch under More (tap "More" 5 times).
+      -->
+      <section class="app-tiers" aria-labelledby="tiers-title">
+        <h2 id="tiers-title" class="h3 section-title">App memberships</h2>
+        <p class="fine">Optional extras for the app, separate from physician care. The free app has everything you
+          need to get started.</p>
+        <div id="tier-cards"></div>
+        <p class="fine">Prices are placeholders pending practice approval. Joining saves your interest on this device
+          only. Nothing is charged.</p>
+      </section>
     </section>
 
     <!-- ================= CARE (your care team) ================= -->
@@ -585,7 +599,7 @@
     <section class="view" data-view="learn" aria-labelledby="learn-title">
       <h1 id="learn-title" class="h2">Learn</h1>
       <nav class="subtabs" aria-label="Learn sections">
-        <a href="#learn" data-sub="articles">Guides</a><a href="#learn/move" data-sub="move">Move</a><a href="#learn/mind" data-sub="mind">Mind</a><a href="#learn/stretch" data-sub="stretch">Stretch</a>
+        <a href="#learn" data-sub="articles">Guides</a><a href="#learn/move" data-sub="move">Move</a><a href="#learn/mind" data-sub="mind">Mind</a><a href="#learn/stretch" data-sub="stretch">Stretch</a><a href="#learn/meals" data-sub="meals">Meals</a>
       </nav>
 
       <div data-panel="articles">
@@ -639,6 +653,9 @@
           </dl>
           <p class="fine">Aim for easy to moderate. You don't need to push to exhaustion or until you can't do another.</p>
         </div>
+        <!-- Custom workouts (Essentials tier): existing sessions in the patient's own order; no new exercises.
+             Saved on this device only (fortino.myWorkout). TODO(confirm with Doc): the 3-session limit and the rest between. -->
+        <div id="my-workout"></div>
         <div id="move-list"></div>
         <p class="disclaimer">General information, not medical advice. These sessions are built from published exercise
           guidance but haven't been tested as exact programs. Your physician decides what's right for you.</p>
@@ -677,6 +694,20 @@
         <p class="disclaimer">General information, not medical advice. These routines are built from published guidance
           but haven't been tested as exact programs. Your physician decides what's right for you.</p>
       </div>
+      <!-- TODO(confirm): recipes and the meal planner (recipes.js) need review by Dr. Fortino before launch. Free users
+           see the sample recipes; the rest follows the app membership tier (TIERS in app.js). -->
+      <div data-panel="meals" hidden>
+        <p class="draft-flag">Draft · awaiting review by Dr. Fortino</p>
+        <p class="lede">Simple, budget-friendly, high-protein meals that support your care plan. Your physician's or
+          dietitian's advice for you comes first.</p>
+        <div id="planner"></div>
+        <h2 class="h3 section-title" id="recipes-title">Recipes</h2>
+        <div class="chips chips-scroll" id="recipe-filters" role="group" aria-label="Filter recipes"></div>
+        <ul class="stretch-list" id="recipe-list"></ul>
+        <div id="recipes-locked"></div>
+        <p class="disclaimer">General information, not medical advice. Protein amounts are approximate, and prices are
+          estimates. Recipes aren't checked for allergies, so always read labels.</p>
+      </div>
     </section>
 
     <section class="view" data-view="article" aria-live="polite">
@@ -693,6 +724,14 @@
         <li><a href="#privacy"><span class="mi" aria-hidden="true"><i data-icon="lock"></i></span>Privacy &amp; your data</a></li>
       </ul>
       <p class="legal-links"><a href="#privacy-policy">Privacy Policy</a><span aria-hidden="true"> · </span><a href="#terms">Terms of Service</a></p>
+      <!-- DEMO ONLY: preview each app membership tier. Revealed by tapping the "More" title 5 times; once revealed it
+           stays on this device (fortino.demo). Previewing unlocks features on this device; nothing is charged. -->
+      <section class="card" id="tier-preview" aria-labelledby="tier-preview-title" hidden>
+        <h2 class="h3" id="tier-preview-title">Preview a membership tier</h2>
+        <p class="fine">For demos. Unlocks that tier's features on this device. Nothing is charged.</p>
+        <div class="seg seg-4" id="tier-preview-seg" role="radiogroup" aria-labelledby="tier-preview-title"></div>
+        <button type="button" class="link-btn" id="tier-preview-hide">Hide this switch</button>
+      </section>
       <!-- TEST BUILD account (Supabase, no BAA). Hidden until supabase-config.js is filled in. See TODO(auth) in app.js. -->
       <section class="card" id="account" aria-labelledby="account-title" hidden>
         <h2 class="h3" id="account-title">Your account</h2>
@@ -740,7 +779,10 @@
             them from this device. Test accounts are for made-up information only.</li>
           <li><strong>Your journal</strong> is saved only on this device. It isn't synced to your account, even when
             you're signed in, and your care team doesn't see it. Signing out deletes it from this device.</li>
-          <li><strong>Membership and consult forms</strong> don't send anything yet.</li>
+          <li><strong>Meal plans, your planner answers, My workout, and app membership interest</strong> are saved
+            only on this device. They aren't synced to your account or sent anywhere. Signing out removes them from
+            this device.</li>
+          <li><strong>Membership and consult forms</strong> don't send anything yet, and nothing is ever charged.</li>
         </ul>
         <p>Before the practice uses this app with patients, these will be connected to secure, HIPAA-compliant systems
           and this page will be replaced with the practice's privacy notice.</p>
@@ -784,7 +826,9 @@
             follows your phone maker's privacy settings.</li>
           <li><strong>Readiness quiz</strong> answers, name and email stay in the open browser tab only. They aren't
             saved or sent anywhere.</li>
-          <li><strong>Membership and consult request forms</strong> don't send or save anything yet.</li>
+          <li><strong>Meal planner answers and plans, your custom workout, and app membership interest</strong> are
+            saved on your device only. They aren't sent anywhere.</li>
+          <li><strong>Membership and consult request forms</strong> don't send anything yet. No payments are taken.</li>
         </ul>
 
         <h2>Where it's stored</h2>
@@ -909,6 +953,7 @@
   <script src="icons.js"></script>     <!-- Lucide line icons (ISC); no emoji in the app -->
   <script src="library.js"></script>   <!-- Move and Mind content; TODO(confirm) clinical review -->
   <script src="stretch-art.js"></script>   <!-- Stretch illustrations: original line drawings -->
+  <script src="recipes.js"></script>   <!-- Meals: recipes, estimated prices; TODO(confirm) review by Dr. Fortino -->
   <script src="app.js"></script>
 </body>
 </html>

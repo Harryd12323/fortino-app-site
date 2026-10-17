@@ -511,9 +511,9 @@ main {
 .article .callout p:last-child { margin-bottom: 0; }
 
 /* ---------- Learn sub-tabs: Guides · Move · Mind · Stretch ---------- */
-.subtabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: .25rem; padding: .25rem; margin: .75rem 0 1.25rem;
+.subtabs { display: grid; grid-template-columns: repeat(5, 1fr); gap: .25rem; padding: .25rem; margin: .75rem 0 1.25rem;
   background: var(--tint-2); border-radius: 12px; }
-.subtabs a { display: grid; place-items: center; min-height: 44px; border-radius: 9px; font-weight: 600; font-size: .95rem;
+.subtabs a { display: grid; place-items: center; min-height: 44px; border-radius: 9px; font-weight: 600; font-size: .88rem;
   color: var(--primary-dark); text-decoration: none; }
 .subtabs a[aria-current="page"] { background: var(--surface); box-shadow: var(--shadow); color: var(--primary); }
 .notice { background: var(--tint); border-left: 4px solid var(--cyan); border-radius: 0 12px 12px 0; padding: .8rem 1rem;
@@ -609,3 +609,64 @@ main {
 .btn-danger { color: var(--error); }
 .btn-danger:hover { background: #f8eeed; }
 #journal-title:focus { outline: none; }
+
+/* ---------- App membership tiers (Plan) and the demo switch (More) ---------- */
+.app-tiers { margin-top: 2rem; }
+.app-tiers .section-title { margin-bottom: .25rem; }
+.tier .price { font-size: 2rem; }
+.tier-previewing { color: var(--cyan-text); font-weight: 600; }
+.seg-4 { grid-template-columns: repeat(4, 1fr); margin-bottom: .5rem; }
+/* The one small note shown where a locked feature appears. Never a pop-up. */
+.locked-note { display: flex; align-items: center; gap: .45rem; margin: .5rem 0 0; font-size: .85rem; color: var(--muted); }
+.locked-note a { color: var(--primary); font-weight: 600; }
+.tier .price { margin-bottom: .1rem; }
+.tier-pending { margin: 0 0 .75rem; }
+
+/* ---------- Learn → Meals ---------- */
+.recipe-facts { font-weight: 600; color: var(--primary-dark); }
+.servings { display: flex; align-items: center; gap: .75rem; margin: .5rem 0 1rem; }
+.servings .icon-btn { width: 44px; height: 44px; border: 1px solid var(--line); border-radius: 50%; background: var(--surface);
+  font-size: 1.3rem; color: var(--primary); display: grid; place-items: center; cursor: pointer; }
+.servings .icon-btn:disabled { opacity: .4; cursor: default; }
+.servings span { min-width: 6.5rem; text-align: center; font-weight: 600; }
+.recipe-ing li { margin: .2rem 0; }
+.pantry-line { margin-top: .5rem; }
+.seg-3 { grid-template-columns: repeat(3, 1fr); }
+.seg-3 span { font-size: .85rem; text-align: center; padding: 0 .25rem; line-height: 1.2; }
+.planner-form .chips { margin-top: .4rem; }
+.planner-form legend { margin-bottom: .4rem; }
+.planner { margin-bottom: 1rem; }
+.plan-days { list-style: none; padding: 0; margin: .75rem 0; display: grid; gap: .75rem; }
+.plan-days > li { border-top: 1px solid var(--line); padding-top: .6rem; }
+.plan-days h3 { margin: 0 0 .25rem; font-size: 1rem; color: var(--primary-dark); }
+.plan-days ul { list-style: none; padding: 0; margin: 0; }
+.plan-days ul li { display: grid; grid-template-columns: 5rem 1fr auto; align-items: center; gap: .5rem; min-height: 44px; }
+.meal-label { font-size: .8rem; color: var(--muted); font-weight: 600; }
+.swap-btn { min-height: 36px; padding: 0 .7rem; border: 1px solid var(--line); border-radius: 99px; background: var(--surface);
+  color: var(--primary); font: 600 .8rem var(--font); cursor: pointer; }
+.plan-actions { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+.plan-actions .btn { padding-left: .5rem; padding-right: .5rem; font-size: .9rem; }
+.budget-line p { margin: .25rem 0 .4rem; }
+.budget-bar { height: 10px; border-radius: 99px; background: var(--tint-2); overflow: hidden; }
+.budget-bar span { display: block; height: 100%; background: var(--cyan); border-radius: 99px; }
+.budget-bar.over span { background: #c58a1b; }
+.estimate-flag { margin: .75rem 0; font-size: .82rem; color: #6b5214; background: #fff7e6; border: 1px solid #f0dcae;
+  border-radius: 10px; padding: .5rem .7rem; }
+.list-section { margin: 1rem 0 .25rem; font-size: .95rem; color: var(--primary-dark); }
+.list-section small { font-weight: 400; color: var(--muted); }
+.shop-list { list-style: none; padding: 0; margin: 0; }
+.shop-list li { display: flex; align-items: flex-start; justify-content: space-between; gap: .5rem; border-bottom: 1px solid var(--line); }
+.shop-list .check { margin: 0; padding: .45rem 0; color: var(--ink); flex: 1; }
+.shop-list .check small { display: block; color: var(--muted); }
+.shop-list input:checked + span { text-decoration: line-through; color: var(--muted); }
+.shop-list .est { padding-top: .5rem; font-variant-numeric: tabular-nums; color: var(--muted); font-size: .9rem; }
+.shop-list.pantry li { padding: .45rem 0; font-size: .9rem; color: var(--muted); }
+.planner-form .chips label span { white-space: nowrap; }
+.mw-list { list-style: none; padding: 0; margin: .5rem 0 1rem; counter-reset: mw; }
+.mw-list li { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; padding: .5rem 0;
+  border-bottom: 1px solid var(--line); counter-increment: mw; }
+.mw-list li > span::before { content: counter(mw) ". "; font-weight: 700; color: var(--primary); }
+.mw-list li > span { flex-basis: 100%; }
+.mw-list strong { font-size: .95rem; }
+.mw-list small { display: block; color: var(--muted); font-size: .8rem; }
+.swap-btn:disabled { opacity: .4; cursor: default; }
