@@ -546,6 +546,13 @@ main {
 .stretch-move h2 { margin-top: 0; }
 .stretch-move .howto { padding-left: 1.2rem; margin: .5rem 0; }
 .easier { margin: .5rem 0 0; font-size: .92rem; }
+/* Stretch illustrations: small frames side by side (start, move, and a seated option) */
+.stretch-art { display: grid; grid-template-columns: repeat(2, 1fr); gap: .5rem; max-width: 18rem; margin: .5rem 0 .75rem; }
+.stretch-art.three { grid-template-columns: repeat(3, 1fr); max-width: 27rem; }
+.stretch-art figure { margin: 0; }
+.stretch-art svg { display: block; width: 100%; height: auto; background: var(--surface); border: 1px solid var(--line);
+  border-radius: 10px; }
+.stretch-art figcaption { margin-top: .2rem; text-align: center; font-size: .75rem; color: var(--muted); }
 .dont-have-to { margin: .75rem 0 .5rem; font-family: var(--serif); font-style: italic; color: var(--primary-dark); }
 #feel-chips { margin-bottom: .5rem; }
 .player { text-align: center; }

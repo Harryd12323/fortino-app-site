@@ -1082,6 +1082,7 @@ function renderStretchArticle(slug) {
   a.stretches.forEach((s) => {
     const card = el("section", "card stretch-move");
     card.append(el("h2", "h3", s.name));
+    card.insertAdjacentHTML("beforeend", stretchArt(s.art));   // stretch-art.js: start, move (and seated) frames
     const ol = el("ol", "howto"); s.steps.forEach((t) => ol.append(el("li", null, t)));
     const easier = el("p", "easier"); easier.append(el("strong", null, "Easier version: "), s.easier);
     const safety = el("p", "safety-note"); safety.append(el("strong", null, "Safety: "), s.safety);
