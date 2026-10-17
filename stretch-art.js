@@ -98,6 +98,10 @@ function figureSVG(f) {
   out.push(`<path d="${torso}" stroke="${ART.navy}" stroke-width="${b.w + 3.4}" stroke-linecap="round"/>`,
            `<path d="${torso}" stroke="${ART.tint}" stroke-width="${b.w}" stroke-linecap="round"/>`);
   if (f.legs && f.legs[near]) out.push(limb(f.legs[near]));
+  // optional: a dashed outline where the head started, and a neck line that shows the bend
+  if (f.ghost) out.push(`<circle cx="${f.ghost[0]}" cy="${f.ghost[1]}" r="8.4" fill="none" stroke="${ART.prop}"
+    stroke-width="1.6" stroke-dasharray="3 2.5"/>`);
+  if (f.neckLine) out.push(limb([f.neck, f.head]));
   out.push(`<circle cx="${f.head[0]}" cy="${f.head[1]}" r="8.4" fill="${ART.skin}" stroke="${ART.navy}" stroke-width="2.2"/>`,
            f.tilt ? `<g transform="rotate(${f.tilt} ${f.head[0]} ${f.head[1]})">${hairSVG(b.hair, f.head, f.face)}${faceSVG(f)}</g>`
                   : hairSVG(b.hair, f.head, f.face) + faceSVG(f));
@@ -229,10 +233,11 @@ const STRETCH_ART = {
   ],
   "neck-side": [
     { alt: "An adult sits tall in a chair, facing you, shoulders relaxed and head upright.",
-      props: [{ t: "chair-back", x: 50 }], fig: frontSit(50, "c") },
-    { alt: "The head tips gently, ear toward shoulder, while the shoulders stay down. A curved arrow shows the tilt.",
-      props: [{ t: "chair-back", x: 50 }], fig: frontSit(50, "c", { head: [55, 32], tilt: 28 }),
-      arrows: [{ curve: [[44, 14], [58, 12], [68, 24]] }] },
+      props: [{ t: "chair-back", x: 50 }], fig: frontSit(50, "c", { neckLine: true }) },
+    { alt: "The head tips clearly to one side, ear moving down toward the shoulder, while both shoulders stay level. A dashed outline shows where the head started and a curved arrow shows the tilt.",
+      props: [{ t: "chair-back", x: 50 }],
+      fig: frontSit(50, "c", { head: [60, 34], tilt: 40, ghost: [50, 30], neckLine: true }),
+      arrows: [{ curve: [[44, 15], [60, 8], [73, 25]] }] },
   ],
   "chest-opener": [
     { alt: "Side view: an adult stands with hands on hips and shoulders slightly rounded forward.",
