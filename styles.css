@@ -510,7 +510,7 @@ main {
 .sources a { color: var(--cyan-text); overflow-wrap: anywhere; }
 .article .callout p:last-child { margin-bottom: 0; }
 
-/* ---------- Learn sub-tabs: Nutrition · Move · Mind · Stretch ---------- */
+/* ---------- Learn sub-tabs: Guides · Move · Mind · Stretch ---------- */
 .subtabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: .25rem; padding: .25rem; margin: .75rem 0 1.25rem;
   background: var(--tint-2); border-radius: 12px; }
 .subtabs a { display: grid; place-items: center; min-height: 44px; border-radius: 9px; font-weight: 600; font-size: .95rem;
