@@ -179,7 +179,7 @@ if (sb) {
 
 // ---------- Router ----------
 // #today (default) #journal #progress #plan #care #care/book #learn #learn/move #learn/mind #learn/stretch #learn/meals
-// #learn/<slug> (guides, stretches and recipes) #quiz
+// #learn/<slug> (guides, stretches and recipes) #plan/memberships (the app tiers) #quiz
 // #more #privacy
 const ALIASES = { home: "today", membership: "plan", book: "care", menu: "more" };   // links from older versions
 const TAB_FOR = { today: "today", quiz: "today", journal: "today", progress: "progress", plan: "plan", care: "care",
@@ -206,6 +206,7 @@ function route() {
   if (view === "learn") { showLearnPanel(sub); renderStart(); renderLearnTiered(); }
   $("#main").focus({ preventScroll: true });
   if (view === "care" && arg === "book") $("#book").scrollIntoView();
+  else if (view === "plan" && arg === "memberships") $(".app-tiers").scrollIntoView();
   else window.scrollTo(0, 0);
 }
 window.addEventListener("hashchange", () => { movedInApp = true; route(); });
@@ -1258,20 +1259,49 @@ function renderRecipes() {
     $("span", li).textContent = `About ${recipeProtein(r)} g protein · about ${money(recipeCost(r))} a serving (estimate)`;
     ul.append(li);
   });
+  // Free users also see what membership adds: names only, with a lock. Each opens a preview page, never a pop-up.
+  const locked = RECIPES.filter((r) => !canSeeRecipe(r));
+  $("#members-recipes-title").hidden = $("#recipe-locked-list").hidden = !locked.length;
+  $("#recipe-locked-list").replaceChildren(...locked.map((r) => {
+    const li = document.createElement("li");
+    li.innerHTML = `<a class="card stretch-card locked-recipe" href="#learn/${r.slug}"><small></small><strong></strong>
+      <span class="lock-icon" aria-hidden="true">${icon("lock")}</span></a>`;
+    $("small", li).textContent = `${MEAL_NAMES[r.meal]} · ${r.minutes} min`;
+    $("strong", li).textContent = r.name;
+    $("a", li).setAttribute("aria-label", `${r.name}, available with membership`);
+    return li;
+  }));
   // The one small note for free users. Never a pop-up, never on Today.
   $("#recipes-locked").innerHTML = all ? "" : LOCKED_NOTE(1).replace("Available with membership",
     "More recipes, quick meals and a budget meal planner are available with membership");
 }
 
 let recipeServings = null;   // set from the planner's household size, or 2
+// What a free user sees when they tap a members' recipe: a plain page, not a pop-up, and no pressure wording.
+function renderRecipePreview(r) {
+  $("#article-back").href = "#learn/meals";
+  $("#article-back-label").textContent = "All recipes";
+  $("#article-body").innerHTML = `<div class="card recipe-preview"><p class="eyebrow"></p><h1></h1>
+      <p class="recipe-blurb"></p><p class="recipe-facts"></p>
+      <p class="locked-note">${icon("lock")}<span>Available with membership</span></p>
+      <a href="#plan/memberships" class="btn btn-primary btn-block">See plans</a></div>`;
+  $("#article-body .eyebrow").textContent = `${MEAL_NAMES[r.meal]} · ${r.minutes} min`;
+  $("#article-body h1").textContent = r.name;
+  $("#article-body .recipe-blurb").textContent = r.blurb;
+  $("#article-body .recipe-facts").textContent = `About ${recipeProtein(r)} g protein per serving`;
+  return true;
+}
+
 function renderRecipe(slug) {
   const r = RECIPES.find((x) => x.slug === slug);
-  if (!r || !canSeeRecipe(r)) return false;
+  if (!r) return false;
+  if (!canSeeRecipe(r)) return renderRecipePreview(r);
   const n = recipeServings || load(KEYS.mealPrefs, {}).people || 2;
   $("#article-back").href = "#learn/meals";
   $("#article-back-label").textContent = "All recipes";
   $("#article-body").innerHTML = `<p class="eyebrow"></p><h1></h1>
     <p class="draft-flag">Draft · awaiting review by Dr. Fortino</p>
+    <p class="recipe-blurb"></p>
     <p class="recipe-facts"></p>
     <div class="servings" role="group" aria-label="Servings">
       <button type="button" class="icon-btn" data-step="-1" aria-label="Fewer servings">&minus;</button>
@@ -1286,6 +1316,7 @@ function renderRecipe(slug) {
       always read labels.</p>`;
   $("#article-body .eyebrow").textContent = `${MEAL_NAMES[r.meal]} · ${r.minutes} min${isQuick(r) ? " · Quick meal" : ""}`;
   $("#article-body h1").textContent = r.name;
+  $("#article-body .recipe-blurb").textContent = r.blurb;
   $("#article-body .recipe-facts").textContent =
     `About ${recipeProtein(r)} g protein per serving · estimated ${money(recipeCost(r))} per serving`;
   $("#article-body .servings span").textContent = `${n} ${n === 1 ? "serving" : "servings"}`;

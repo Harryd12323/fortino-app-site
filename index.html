@@ -704,6 +704,10 @@
         <h2 class="h3 section-title" id="recipes-title">Recipes</h2>
         <div class="chips chips-scroll" id="recipe-filters" role="group" aria-label="Filter recipes"></div>
         <ul class="stretch-list" id="recipe-list"></ul>
+        <!-- Free users: the members' recipes are listed (name, meal, lock icon); tapping one opens a plain preview page
+             (#learn/<slug>) with "Available with membership" and "See plans". No pop-ups, countdowns or pressure wording. -->
+        <h2 class="h3 section-title" id="members-recipes-title" hidden>Members' recipes</h2>
+        <ul class="stretch-list" id="recipe-locked-list" aria-labelledby="members-recipes-title" hidden></ul>
         <div id="recipes-locked"></div>
         <p class="disclaimer">General information, not medical advice. Protein amounts are approximate, and prices are
           estimates. Recipes aren't checked for allergies, so always read labels.</p>

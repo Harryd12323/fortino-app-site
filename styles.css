@@ -670,3 +670,8 @@ main {
 .mw-list strong { font-size: .95rem; }
 .mw-list small { display: block; color: var(--muted); font-size: .8rem; }
 .swap-btn:disabled { opacity: .4; cursor: default; }
+.locked-recipe { position: relative; padding-right: 3rem; }
+.lock-icon { position: absolute; right: 1.1rem; top: 50%; transform: translateY(-50%); color: var(--muted); }
+.recipe-blurb { font-size: 1.05rem; }
+.recipe-preview h1 { margin-top: .25rem; }
+.recipe-preview .locked-note { margin: .25rem 0 1rem; }
